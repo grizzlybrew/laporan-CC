@@ -24,7 +24,6 @@ let signatureData = "";
 let photoData = [];
 let saveTimer = null;
 
-// Cache elemen DOM yang sering diakses
 const dom = {};
 
 function cacheDOM() {
@@ -354,7 +353,6 @@ function renderPhotos() {
     return;
   }
 
-  // Dua foto per halaman dokumentasi
   for (let i = 0; i < photoData.length; i += 2) {
     const page = document.createElement("div");
     page.className = "page";
@@ -402,12 +400,41 @@ function getPdfFilename() {
   return `Laporan_CC_${safeName}.pdf`;
 }
 
+function imageToSafeDataURL(imgEl) {
+  return new Promise(resolve => {
+    if (!imgEl || !imgEl.getAttribute("src")) return resolve(null);
+
+    const src = imgEl.src;
+    if (src.startsWith("data:")) return resolve(src);
+
+    const tempImg = new Image();
+    tempImg.crossOrigin = "anonymous";
+
+    tempImg.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = tempImg.naturalWidth || 200;
+        canvas.height = tempImg.naturalHeight || 200;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(tempImg, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/png"));
+      } catch (e) {
+        resolve(null);
+      }
+    };
+
+    tempImg.onerror = () => resolve(null);
+    tempImg.src = src;
+  });
+}
+
 async function exportPDF() {
   const button = dom.exportBtn;
   const originalText = button.textContent;
-  const previewArea = dom.previewArea;
-  const originalStyle = previewArea.getAttribute("style");
-  let temporaryStyle = null;
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
+
+  let exportWrapper = null;
 
   button.disabled = true;
   button.textContent = "Membuat PDF...";
@@ -421,98 +448,92 @@ async function exportPDF() {
     updatePreview();
     if (db) await saveToDatabase(collectFormData());
 
-    const report = previewArea.querySelector(":scope > .page");
-    if (!report || !report.querySelector(".document-title")) {
-      throw new Error("Isi laporan tidak ditemukan. Muat ulang halaman lalu coba lagi.");
+    const sourceReport = dom.previewArea.querySelector(":scope > .page");
+    if (!sourceReport) {
+      throw new Error("Isi laporan tidak ditemukan.");
     }
 
-    // Paksa area pratinjau menjadi bidang A4 penuh untuk html2canvas
-    previewArea.style.width = "794px";
-    previewArea.style.maxWidth = "none";
-    previewArea.style.margin = "0";
-    previewArea.style.padding = "0";
-    previewArea.style.overflow = "visible";
-    previewArea.style.background = "#ffffff";
-    previewArea.style.position = "absolute";
-    previewArea.style.left = "0";
-    previewArea.style.top = "0";
-    previewArea.style.zIndex = "999999";
+    const logoEl = document.getElementById("kemensosLogo");
+    const safeLogoDataUrl = await imageToSafeDataURL(logoEl);
 
-    temporaryStyle = document.createElement("style");
-    temporaryStyle.textContent = `
-      .preview-area > .page,
-      .preview-area #photoPages .page {
-        width: 210mm !important;
-        max-width: 210mm !important;
-        margin: 0 !important;
-        box-shadow: none !important;
-        background: #fff !important;
-        color: #111 !important;
-        box-sizing: border-box !important;
-      }
-      .preview-area > .page {
-        min-height: 0 !important;
-        height: auto !important;
-        padding: 18mm 25mm 20mm !important;
-        overflow: visible !important;
-      }
-      .preview-area #photoPages {
-        display: block !important;
-        width: 210mm !important;
-        break-before: page !important;
-        page-break-before: always !important;
-      }
-      .preview-area #photoPages .page {
-        height: 297mm !important;
-        min-height: 297mm !important;
-        padding: 18mm 25mm 20mm !important;
-        overflow: hidden !important;
-        break-after: page !important;
-        page-break-after: always !important;
-      }
-      .preview-area #photoPages .page:last-child {
-        break-after: auto !important;
-        page-break-after: auto !important;
-      }
-      .preview-area #photoPages .photo-grid {
-        display: grid !important;
-        grid-template-columns: 1fr !important;
-        grid-template-rows: 1fr 1fr !important;
-        gap: 8mm !important;
-      }
-      .preview-area #photoPages .photo-item {
-        height: 82mm !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        break-inside: avoid !important;
-      }
-      .preview-area #photoPages img {
-        max-width: 100% !important;
-        max-height: 82mm !important;
-        object-fit: contain !important;
-      }
-      .preview-area .document-row .value {
-        white-space: pre-wrap !important;
-        overflow-wrap: anywhere !important;
-      }
-      .preview-area .signature { break-inside: avoid !important; }
-    `;
-    document.head.appendChild(temporaryStyle);
+    window.scrollTo(0, 0);
 
-    // Pastikan seluruh gambar selesai dimuat/didekode
-    const images = Array.from(previewArea.querySelectorAll("img"));
-    await Promise.all(images.map(img => {
-      if (!img.getAttribute("src")) return Promise.resolve();
-      if (typeof img.decode === "function") return img.decode().catch(() => {});
-      if (img.complete) return Promise.resolve();
-      return new Promise(resolve => {
-        img.onload = resolve;
-        img.onerror = resolve;
+    exportWrapper = document.createElement("div");
+    exportWrapper.id = "pdf-export-wrapper";
+    Object.assign(exportWrapper.style, {
+      position: "fixed",
+      left: "0",
+      top: "0",
+      width: "210mm",
+      background: "#ffffff",
+      color: "#111111",
+      zIndex: "999999",
+      margin: "0",
+      padding: "0",
+      boxSizing: "border-box"
+    });
+
+    const clonedReport = sourceReport.cloneNode(true);
+    Object.assign(clonedReport.style, {
+      width: "210mm",
+      minHeight: "296mm",
+      height: "auto",
+      margin: "0",
+      padding: "18mm 25mm 20mm",
+      boxShadow: "none",
+      background: "#ffffff",
+      boxSizing: "border-box"
+    });
+
+    const clonedLogo = clonedReport.querySelector("#kemensosLogo");
+    if (clonedLogo) {
+      if (safeLogoDataUrl) {
+        clonedLogo.removeAttribute("crossorigin");
+        clonedLogo.src = safeLogoDataUrl;
+      } else {
+        clonedLogo.style.display = "none";
+      }
+    }
+
+    exportWrapper.appendChild(clonedReport);
+
+    if (photoData.length > 0) {
+      const photoPageNodes = dom.photoPages.querySelectorAll(".page");
+      photoPageNodes.forEach(pageNode => {
+        const clonedPhotoPage = pageNode.cloneNode(true);
+        Object.assign(clonedPhotoPage.style, {
+          width: "210mm",
+          height: "296mm",
+          minHeight: "296mm",
+          margin: "0",
+          padding: "18mm 25mm 20mm",
+          boxShadow: "none",
+          background: "#ffffff",
+          boxSizing: "border-box",
+          pageBreakBefore: "always",
+          breakBefore: "page",
+          overflow: "hidden"
+        });
+        exportWrapper.appendChild(clonedPhotoPage);
       });
-    }));
+    }
 
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    document.body.appendChild(exportWrapper);
+
+    const images = Array.from(exportWrapper.querySelectorAll("img"));
+    await Promise.all(
+      images.map(img => {
+        if (!img.getAttribute("src") || img.style.display === "none") return Promise.resolve();
+        if (typeof img.decode === "function") return img.decode().catch(() => {});
+        if (img.complete) return Promise.resolve();
+        return new Promise(res => {
+          img.onload = res;
+          img.onerror = res;
+        });
+      })
+    );
+
+    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
 
     const options = {
       margin: 0,
@@ -520,27 +541,39 @@ async function exportPDF() {
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
         scale: 2,
-        useCORS: true,
-        allowTaint: true,
+        useCORS: false,
+        allowTaint: false,
         backgroundColor: "#ffffff",
-        logging: false,
         scrollX: 0,
         scrollY: 0,
-        windowWidth: 1200
+        x: 0,
+        y: 0,
+        width: exportWrapper.offsetWidth,
+        height: exportWrapper.offsetHeight,
+        windowWidth: exportWrapper.offsetWidth
       },
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait", compress: true },
-      pagebreak: { mode: ["css", "legacy"], avoid: [".signature", ".photo-item"] }
+      jsPDF: {
+        unit: "mm",
+        format: "a4",
+        orientation: "portrait",
+        compress: true
+      },
+      pagebreak: {
+        mode: ["css", "legacy"],
+        avoid: [".signature", ".photo-item"]
+      }
     };
 
-    await html2pdf().set(options).from(previewArea).save();
+    await html2pdf().set(options).from(exportWrapper).save();
 
   } catch (error) {
     console.error("Gagal mengekspor PDF:", error);
     alert("PDF gagal dibuat: " + (error && error.message ? error.message : "Kesalahan tidak diketahui"));
   } finally {
-    if (temporaryStyle) temporaryStyle.remove();
-    if (originalStyle === null) previewArea.removeAttribute("style");
-    else previewArea.setAttribute("style", originalStyle);
+    if (exportWrapper && exportWrapper.parentNode) {
+      exportWrapper.parentNode.removeChild(exportWrapper);
+    }
+    window.scrollTo(scrollX, scrollY);
     button.disabled = false;
     button.textContent = originalText;
   }
