@@ -16,8 +16,8 @@
   </div>
 
   <div class="header-actions">
-    <button class="export" onclick="exportPDF()">↓ Ekspor PDF</button>
-    <button class="reset" onclick="resetForm()">Reset Formulir</button>
+    <button type="button" class="export" onclick="exportPDF()">↓ Ekspor PDF</button>
+    <button type="button" class="reset" onclick="resetForm()">Reset Formulir</button>
   </div>
 </header>
 
@@ -31,58 +31,59 @@
 <div class="card">
 <h3>01. Identitas PM</h3>
 
-<label>Nama PM</label>
+<label for="name">Nama PM</label>
 <input id="name" placeholder="Nama lengkap PM">
 
-<label>Tempat, Tanggal Lahir</label>
+<label for="birth">Tempat, Tanggal Lahir</label>
 <input id="birth" placeholder="Jakarta, 10 April 2006">
 
-<label>Alamat</label>
+<label for="address">Alamat</label>
 <textarea id="address" placeholder="Alamat lengkap PM"></textarea>
 
-<label>Kasus</label>
+<label for="case">Kasus</label>
 <input id="case" placeholder="Contoh: Anak Berhadapan dengan Hukum">
 
-<label>Rujukan</label>
+<label for="referral">Rujukan</label>
 <input id="referral" placeholder="Instansi yang merujuk">
 
-<label>Tanggal Masuk</label>
+<label for="entry">Tanggal Masuk</label>
 <input id="entry" type="date">
 </div>
 
 <div class="card">
 <h3>02. Hasil Pembahasan</h3>
 
-<label>Pembahasan Hasil Asesmen</label>
+<label for="assessment">Pembahasan Hasil Asesmen</label>
 <textarea id="assessment" placeholder="Tuliskan hasil pembahasan asesmen"></textarea>
 
-<label>Rencana Intervensi</label>
+<label for="intervention">Rencana Intervensi</label>
 <textarea id="intervention" placeholder="Tuliskan rencana intervensi"></textarea>
 
-<label>Rekomendasi Hasil Kesepakatan</label>
+<label for="recommendation">Rekomendasi Hasil Kesepakatan</label>
 <textarea id="recommendation" placeholder="Tuliskan rekomendasi hasil kesepakatan"></textarea>
 </div>
 
 <div class="card">
 <h3>03. Petugas Pelaksana</h3>
 
-<label>Tempat Pembuatan Laporan</label>
+<label for="city">Tempat Pembuatan Laporan</label>
 <input id="city" value="Jakarta">
 
-<label>Tanggal CC</label>
+<label for="meetingDate">Tanggal CC</label>
 <input id="meetingDate" type="date">
 
-<label>Nama Petugas</label>
+<label for="officer">Nama Petugas</label>
 <input id="officer" placeholder="Nama lengkap petugas">
 </div>
 
 <div class="card">
 <h3>04. Tanda Tangan Digital</h3>
 
-<label>Upload Tanda Tangan</label>
+<label for="signatureInput">Upload Tanda Tangan</label>
 <div class="upload-box">
-<input type="file" id="signatureInput" accept="image/*">
+  <input type="file" id="signatureInput" accept="image/*">
 </div>
+<button type="button" id="clearSignatureBtn" class="btn-mini" style="display:none;" onclick="removeSignature()">Hapus Tanda Tangan</button>
 
 <p class="hint">
 Upload gambar tanda tangan. Disarankan menggunakan PNG dengan latar transparan.
@@ -92,14 +93,15 @@ Upload gambar tanda tangan. Disarankan menggunakan PNG dengan latar transparan.
 <div class="card">
 <h3>05. Dokumentasi</h3>
 
-<label>Upload Foto Kegiatan</label>
+<label for="photoInput">Upload Foto Kegiatan</label>
 <div class="upload-box">
-<input type="file" id="photoInput" accept="image/*" multiple>
+  <input type="file" id="photoInput" accept="image/*" multiple>
 </div>
 
 <p id="photoCount" class="hint">
 Belum ada foto yang diunggah.
 </p>
+<div id="photoThumbList" class="thumb-list"></div>
 </div>
 
 <div class="card">
@@ -134,8 +136,7 @@ Semua isian, tanda tangan, dan foto dokumentasi tersimpan otomatis di browser in
     alt="Logo Kementerian Sosial Republik Indonesia"
     loading="eager"
     crossorigin="anonymous"
-    style="width:25mm;height:25mm;object-fit:contain;"
-    onerror="this.onerror=null; this.src='./logo%20kemensos.svg';"
+    onerror="this.onerror=null; this.removeAttribute('crossorigin'); this.src='./logo%20kemensos.svg';"
   >
 </div>
 
@@ -228,7 +229,7 @@ LAPORAN HASIL CASE CONFERENCE
 
 <div class="signature-space" id="signatureSpace"></div>
 
-<img id="p-signature" alt="" style="display:none">
+<img id="p-signature" alt="Tanda Tangan Petugas" style="display:none">
 
 <div><b id="p-officer"></b></div>
 
@@ -252,7 +253,7 @@ Dokumentasi akan muncul setelah foto diunggah.
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.3/html2pdf.bundle.min.js"></script>
-<script src="script.js"></script>
+<script src="app.js"></script>
 
 </body>
 </html>
