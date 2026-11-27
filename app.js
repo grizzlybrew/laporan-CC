@@ -83,7 +83,7 @@ async function ensureSafeLogo() {
 }
 
 /* ==================================
-   3. MESIN PAGINASI A4 REAL-TIME (PARAGRAF UTUH)
+   3. MESIN PAGINASI A4 REAL-TIME (PARAGRAF UTUH & ANTI-ORPHAN TTD)
 ================================== */
 
 function createA4Page(container) {
@@ -98,17 +98,14 @@ function createA4Page(container) {
   return content;
 }
 
-// Mengecek apakah isi di dalam .page-content sudah melebihi tinggi cetak A4 (259mm)
 function isOverflowing(pageContent) {
   return pageContent.scrollHeight > pageContent.clientHeight + 1;
 }
 
-// Membentuk elemen paragraf dari teks (menggabungkan baris dalam 1 paragraf menjadi rata kanan-kiri)
 function buildParagraphElements(text) {
   const normalized = (text || "").trim();
   if (!normalized) return [];
 
-  // Pisahkan paragraf hanya jika pengguna menekan Enter
   const rawParagraphs = normalized.split(/\n+/);
   return rawParagraphs.map(pText => {
     const p = document.createElement("p");
@@ -118,7 +115,6 @@ function buildParagraphElements(text) {
   });
 }
 
-// Memecah satu paragraf yang terlalu panjang tepat di batas baris visual terakhir yang muat di halaman
 function splitParagraphToFit(paragraphEl, valueContainer, pageContent) {
   const fullText = paragraphEl.textContent;
   const words = fullText.split(/\s+/);
@@ -142,7 +138,6 @@ function splitParagraphToFit(paragraphEl, valueContainer, pageContent) {
   }
 
   if (bestFit === 0) {
-    // Bahkan 1 kata pun tidak muat di sisa bawah halaman ini
     paragraphEl.textContent = fullText;
     return null;
   }
@@ -156,7 +151,6 @@ function splitParagraphToFit(paragraphEl, valueContainer, pageContent) {
   return nextP;
 }
 
-// Memasukkan baris dokumen (nomor, judul, titik dua, dan isi paragraf) yang otomatis mengalir antarhalaman A4
 function appendFlowRow(container, currentPageContent, rowConfig) {
   let activeContent = currentPageContent;
 
@@ -183,7 +177,6 @@ function appendFlowRow(container, currentPageContent, rowConfig) {
 
   const paragraphs = buildParagraphElements(rowConfig.value);
 
-  // Jika nilai masih kosong, tetap tampilkan baris kosongnya
   if (paragraphs.length === 0) {
     const { row } = createRowShell(true);
     activeContent.appendChild(row);
@@ -199,7 +192,6 @@ function appendFlowRow(container, currentPageContent, rowConfig) {
   let shell = createRowShell(true);
   activeContent.appendChild(shell.row);
 
-  // Jika label awal saja sudah tidak muat di bawah halaman, pindahkan ke halaman baru
   if (isOverflowing(activeContent)) {
     activeContent.removeChild(shell.row);
     activeContent = createA4Page(container);
@@ -213,22 +205,18 @@ function appendFlowRow(container, currentPageContent, rowConfig) {
     shell.colVal.appendChild(p);
 
     if (isOverflowing(activeContent)) {
-      // Coba potong paragraf tepat pada baris terakhir yang masih muat di halaman aktif
       const overflowParagraph = splitParagraphToFit(p, shell.colVal, activeContent);
 
       if (overflowParagraph) {
-        // Sebagian paragraf muat di halaman ini, sisanya dilanjutkan ke halaman berikutnya
         activeContent = createA4Page(container);
         shell = createRowShell(false);
         shell.row.style.marginTop = "0";
         activeContent.appendChild(shell.row);
         queue.unshift(overflowParagraph);
       } else {
-        // Satu baris pun tidak muat di halaman ini -> pindah seluruh paragraf ke halaman baru
         shell.colVal.removeChild(p);
 
         if (isFirstChunkOfRow && shell.colVal.childNodes.length === 0) {
-          // Label baris belum punya isi di halaman lama, pindahkan label + isi sekalian ke halaman baru
           activeContent.removeChild(shell.row);
           activeContent = createA4Page(container);
           shell = createRowShell(true);
@@ -324,9 +312,10 @@ function renderReportPages() {
     activeContent = appendFlowRow(container, activeContent, sec);
   });
 
-  // 6. Blok Tanda Tangan (Selalu utuh di akhir dokumen, pindah halaman jika tidak muat)
+  // 6. Blok Tanda Tangan (Anti-Orphan: tidak akan pernah sendirian di halaman baru)
   const sigBlock = document.createElement("div");
   sigBlock.className = "signature";
+  sigBlock.style.marginTop = "10mm";
 
   const cityText = (dom.city.value || "").trim() || "Jakarta";
   const meetingText = formatDate(dom.meetingDate.value);
@@ -335,7 +324,7 @@ function renderReportPages() {
   sigBlock.innerHTML = `
     <div class="signature-date">${cityText}, ${meetingText}</div>
     <div>Petugas Pelaksana,</div>
-    <div class="signature-space" style="height:${signatureData ? "5mm" : "20mm"}"></div>
+    <div class="signature-space" style="height:${signatureData ? "4mm" : "18mm"}"></div>
     ${signatureData ? `<img src="${signatureData}" alt="Tanda Tangan Petugas">` : ""}
     <div><b></b></div>
   `;
@@ -343,10 +332,54 @@ function renderReportPages() {
 
   activeContent.appendChild(sigBlock);
 
+  // Jika TTD tidak muat di halaman terakhir, pindahkan TTD beserta penutup teks sebelumnya
   if (isOverflowing(activeContent)) {
     activeContent.removeChild(sigBlock);
+
+    const lastRow = activeContent.lastElementChild;
+    let companionRow = null;
+
+    if (lastRow && lastRow.classList.contains("document-row")) {
+      const valContainer = lastRow.querySelector(".value");
+      const paragraphs = valContainer ? Array.from(valContainer.querySelectorAll(".doc-paragraph")) : [];
+
+      if (paragraphs.length > 1) {
+        const lastParagraph = paragraphs[paragraphs.length - 1];
+        valContainer.removeChild(lastParagraph);
+
+        companionRow = document.createElement("div");
+        companionRow.className = "document-row section-row";
+        companionRow.style.marginTop = "0";
+        companionRow.innerHTML = `<div></div><div></div><div></div><div class="value"></div>`;
+        companionRow.querySelector(".value").appendChild(lastParagraph);
+      } else if (paragraphs.length === 1) {
+        const p = paragraphs[0];
+        const words = p.textContent.trim().split(/\s+/);
+        if (words.length > 25) {
+          const splitIndex = words.length - 18;
+          p.textContent = words.slice(0, splitIndex).join(" ");
+
+          const tailP = document.createElement("p");
+          tailP.className = "doc-paragraph";
+          tailP.textContent = words.slice(splitIndex).join(" ");
+
+          companionRow = document.createElement("div");
+          companionRow.className = "document-row section-row";
+          companionRow.style.marginTop = "0";
+          companionRow.innerHTML = `<div></div><div></div><div></div><div class="value"></div>`;
+          companionRow.querySelector(".value").appendChild(tailP);
+        } else {
+          activeContent.removeChild(lastRow);
+          companionRow = lastRow;
+        }
+      }
+    }
+
     activeContent = createA4Page(container);
-    sigBlock.style.marginTop = "0";
+    if (companionRow) {
+      activeContent.appendChild(companionRow);
+    }
+    sigBlock.style.marginTop = "10mm";
     activeContent.appendChild(sigBlock);
   }
 
@@ -687,7 +720,6 @@ async function exportPDF() {
     updateAllPreviews();
     if (db) await saveToDatabase(collectFormData());
 
-    // Kumpulkan lembar laporan A4 + lembar dokumentasi A4 (jika ada foto)
     const reportPageNodes = Array.from(dom.reportPages.querySelectorAll(".page"));
     const photoPageNodes = photoData.length > 0
       ? Array.from(dom.photoPages.querySelectorAll(".page"))
