@@ -2,63 +2,40 @@
    1. KONFIGURASI & STATE
 ================================== */
 
-const TEXT_FIELDS = [
-  "name",
-  "birth",
-  "address",
-  "case",
-  "referral",
-  "assessment",
-  "intervention",
-  "recommendation",
-  "city",
-  "officer"
-];
-
 const STORAGE_DB = "caseConferenceDatabase";
 const STORAGE_STORE = "reports";
 const STORAGE_ID = "currentReport";
 
-// Standar Margin A4 (mm): Atas 18, Kanan 25, Bawah 20, Kiri 25
-// Lebar area konten = 210 - (25 + 25) = 160mm
-const PDF_MARGIN = [18, 25, 20, 25];
-const CONTENT_WIDTH_MM = 160;
+const LOGO_PRIMARY_URL = "https://grizzlybrew.github.io/laporan-hasil-CC/logo-kemensos.png";
+const LOGO_FALLBACK_URL = "./logo%20kemensos.svg";
 
 let db = null;
 let signatureData = "";
 let photoData = [];
 let saveTimer = null;
+let cachedLogoDataUrl = null;
 
 const dom = {};
 
 function cacheDOM() {
-  TEXT_FIELDS.forEach(id => {
-    dom["in_" + id] = document.getElementById(id);
-    dom["out_" + id] = document.getElementById("p-" + id);
+  const ids = [
+    "name", "birth", "address", "case", "referral", "entry",
+    "assessment", "intervention", "recommendation",
+    "city", "meetingDate", "officer",
+    "signatureInput", "clearSignatureBtn",
+    "photoInput", "photoCount", "photoThumbList",
+    "saveStatus", "pageSummary", "previewArea",
+    "reportPages", "photoPages"
+  ];
+
+  ids.forEach(id => {
+    dom[id] = document.getElementById(id);
   });
-
-  dom.in_entry = document.getElementById("entry");
-  dom.out_entry = document.getElementById("p-entry");
-  dom.in_meetingDate = document.getElementById("meetingDate");
-  dom.out_meetingDate = document.getElementById("p-meetingDate");
-
-  dom.signatureImg = document.getElementById("p-signature");
-  dom.signatureSpace = document.getElementById("signatureSpace");
-  dom.signatureInput = document.getElementById("signatureInput");
-  dom.clearSignatureBtn = document.getElementById("clearSignatureBtn");
-
-  dom.photoInput = document.getElementById("photoInput");
-  dom.photoCount = document.getElementById("photoCount");
-  dom.photoThumbList = document.getElementById("photoThumbList");
-  dom.photoPages = document.getElementById("photoPages");
-
-  dom.saveStatus = document.getElementById("saveStatus");
-  dom.previewArea = document.querySelector(".preview-area");
   dom.exportBtn = document.querySelector(".export");
 }
 
 /* ==================================
-   2. FORMAT & PREVIEW DOKUMEN
+   2. FORMAT TANGGAL & DATA LOGO
 ================================== */
 
 function formatDate(value) {
@@ -76,41 +53,421 @@ function formatDate(value) {
   });
 }
 
-function updateTextPreview() {
-  TEXT_FIELDS.forEach(id => {
-    const input = dom["in_" + id];
-    const preview = dom["out_" + id];
-    if (preview && input) {
-      preview.textContent = input.value.trim();
+function loadLogoAsDataURL(url) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || 200;
+        canvas.height = img.naturalHeight || 200;
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/png"));
+      } catch (e) {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function ensureSafeLogo() {
+  if (cachedLogoDataUrl) return cachedLogoDataUrl;
+  cachedLogoDataUrl = await loadLogoAsDataURL(LOGO_PRIMARY_URL);
+  if (!cachedLogoDataUrl) {
+    cachedLogoDataUrl = await loadLogoAsDataURL(LOGO_FALLBACK_URL);
+  }
+  return cachedLogoDataUrl;
+}
+
+/* ==================================
+   3. MESIN PAGINASI A4 REAL-TIME (PARAGRAF UTUH)
+================================== */
+
+function createA4Page(container) {
+  const page = document.createElement("div");
+  page.className = "page";
+
+  const content = document.createElement("div");
+  content.className = "page-content";
+
+  page.appendChild(content);
+  container.appendChild(page);
+  return content;
+}
+
+// Mengecek apakah isi di dalam .page-content sudah melebihi tinggi cetak A4 (259mm)
+function isOverflowing(pageContent) {
+  return pageContent.scrollHeight > pageContent.clientHeight + 1;
+}
+
+// Membentuk elemen paragraf dari teks (menggabungkan baris dalam 1 paragraf menjadi rata kanan-kiri)
+function buildParagraphElements(text) {
+  const normalized = (text || "").trim();
+  if (!normalized) return [];
+
+  // Pisahkan paragraf hanya jika pengguna menekan Enter
+  const rawParagraphs = normalized.split(/\n+/);
+  return rawParagraphs.map(pText => {
+    const p = document.createElement("p");
+    p.className = "doc-paragraph";
+    p.textContent = pText.trim();
+    return p;
+  });
+}
+
+// Memecah satu paragraf yang terlalu panjang tepat di batas baris visual terakhir yang muat di halaman
+function splitParagraphToFit(paragraphEl, valueContainer, pageContent) {
+  const fullText = paragraphEl.textContent;
+  const words = fullText.split(/\s+/);
+
+  if (words.length <= 1) return null;
+
+  let low = 1;
+  let high = words.length - 1;
+  let bestFit = 0;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    paragraphEl.textContent = words.slice(0, mid).join(" ");
+
+    if (!isOverflowing(pageContent)) {
+      bestFit = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
     }
+  }
+
+  if (bestFit === 0) {
+    // Bahkan 1 kata pun tidak muat di sisa bawah halaman ini
+    paragraphEl.textContent = fullText;
+    return null;
+  }
+
+  paragraphEl.textContent = words.slice(0, bestFit).join(" ");
+  const remainingText = words.slice(bestFit).join(" ");
+
+  const nextP = document.createElement("p");
+  nextP.className = "doc-paragraph";
+  nextP.textContent = remainingText;
+  return nextP;
+}
+
+// Memasukkan baris dokumen (nomor, judul, titik dua, dan isi paragraf) yang otomatis mengalir antarhalaman A4
+function appendFlowRow(container, currentPageContent, rowConfig) {
+  let activeContent = currentPageContent;
+
+  const createRowShell = (showHeader) => {
+    const row = document.createElement("div");
+    row.className = rowConfig.isIdentity ? "document-row" : "document-row section-row";
+    if (rowConfig.noTopMargin) row.style.marginTop = "0";
+
+    const colNum = document.createElement("div");
+    colNum.textContent = showHeader ? rowConfig.num : "";
+
+    const colLabel = document.createElement("div");
+    colLabel.textContent = showHeader ? rowConfig.label : "";
+
+    const colColon = document.createElement("div");
+    colColon.textContent = showHeader ? ":" : "";
+
+    const colVal = document.createElement("div");
+    colVal.className = "value";
+
+    row.append(colNum, colLabel, colColon, colVal);
+    return { row, colVal };
+  };
+
+  const paragraphs = buildParagraphElements(rowConfig.value);
+
+  // Jika nilai masih kosong, tetap tampilkan baris kosongnya
+  if (paragraphs.length === 0) {
+    const { row } = createRowShell(true);
+    activeContent.appendChild(row);
+    if (isOverflowing(activeContent)) {
+      activeContent.removeChild(row);
+      activeContent = createA4Page(container);
+      activeContent.appendChild(row);
+    }
+    return activeContent;
+  }
+
+  let isFirstChunkOfRow = true;
+  let shell = createRowShell(true);
+  activeContent.appendChild(shell.row);
+
+  // Jika label awal saja sudah tidak muat di bawah halaman, pindahkan ke halaman baru
+  if (isOverflowing(activeContent)) {
+    activeContent.removeChild(shell.row);
+    activeContent = createA4Page(container);
+    activeContent.appendChild(shell.row);
+  }
+
+  let queue = [...paragraphs];
+
+  while (queue.length > 0) {
+    const p = queue.shift();
+    shell.colVal.appendChild(p);
+
+    if (isOverflowing(activeContent)) {
+      // Coba potong paragraf tepat pada baris terakhir yang masih muat di halaman aktif
+      const overflowParagraph = splitParagraphToFit(p, shell.colVal, activeContent);
+
+      if (overflowParagraph) {
+        // Sebagian paragraf muat di halaman ini, sisanya dilanjutkan ke halaman berikutnya
+        activeContent = createA4Page(container);
+        shell = createRowShell(false);
+        shell.row.style.marginTop = "0";
+        activeContent.appendChild(shell.row);
+        queue.unshift(overflowParagraph);
+      } else {
+        // Satu baris pun tidak muat di halaman ini -> pindah seluruh paragraf ke halaman baru
+        shell.colVal.removeChild(p);
+
+        if (isFirstChunkOfRow && shell.colVal.childNodes.length === 0) {
+          // Label baris belum punya isi di halaman lama, pindahkan label + isi sekalian ke halaman baru
+          activeContent.removeChild(shell.row);
+          activeContent = createA4Page(container);
+          shell = createRowShell(true);
+          activeContent.appendChild(shell.row);
+        } else {
+          activeContent = createA4Page(container);
+          shell = createRowShell(false);
+          shell.row.style.marginTop = "0";
+          activeContent.appendChild(shell.row);
+        }
+        queue.unshift(p);
+      }
+    }
+
+    isFirstChunkOfRow = false;
+  }
+
+  return activeContent;
+}
+
+function renderReportPages() {
+  const container = dom.reportPages;
+  container.innerHTML = "";
+
+  let activeContent = createA4Page(container);
+
+  // 1. Logo Kemensos
+  const logoArea = document.createElement("div");
+  logoArea.className = "logo-area";
+  const logoImg = document.createElement("img");
+  logoImg.id = "kemensosLogo";
+  logoImg.alt = "Logo Kementerian Sosial Republik Indonesia";
+  logoImg.src = cachedLogoDataUrl || LOGO_PRIMARY_URL;
+  logoImg.onerror = function() {
+    this.onerror = null;
+    this.src = LOGO_FALLBACK_URL;
+  };
+  logoArea.appendChild(logoImg);
+  activeContent.appendChild(logoArea);
+
+  // 2. Judul Dokumen
+  const titleEl = document.createElement("div");
+  titleEl.className = "document-title";
+  titleEl.textContent = "LAPORAN HASIL CASE CONFERENCE";
+  activeContent.appendChild(titleEl);
+
+  // 3. Header Poin 1
+  const row1Header = document.createElement("div");
+  row1Header.className = "document-row";
+  row1Header.innerHTML = `
+    <div>1.</div>
+    <div>Pembahasan Kasus PM atas nama</div>
+    <div></div>
+    <div></div>
+  `;
+  activeContent.appendChild(row1Header);
+
+  // 4. Sub-poin Identitas (a - f)
+  const identityWrap = document.createElement("div");
+  identityWrap.className = "identity";
+  activeContent.appendChild(identityWrap);
+
+  const identityItems = [
+    { num: "a.", label: "Nama", value: dom.name.value },
+    { num: "b.", label: "Tempat, Tanggal Lahir", value: dom.birth.value },
+    { num: "c.", label: "Alamat", value: dom.address.value },
+    { num: "d.", label: "Kasus", value: dom.case.value },
+    { num: "e.", label: "Rujukan", value: dom.referral.value },
+    { num: "f.", label: "Tanggal Masuk", value: formatDate(dom.entry.value) }
+  ];
+
+  identityItems.forEach(item => {
+    const row = document.createElement("div");
+    row.className = "document-row";
+    row.innerHTML = `
+      <div>${item.num}</div>
+      <div>${item.label}</div>
+      <div>:</div>
+      <div class="value"></div>
+    `;
+    row.querySelector(".value").textContent = (item.value || "").trim();
+    identityWrap.appendChild(row);
   });
 
-  dom.out_entry.textContent = formatDate(dom.in_entry.value);
-  dom.out_meetingDate.textContent = formatDate(dom.in_meetingDate.value);
-}
+  // 5. Poin Utama 2, 3, 4 (Paragraf utuh yang mengalir otomatis antarhalaman A4)
+  const mainSections = [
+    { num: "2.", label: "Pembahasan Hasil Asesmen", value: dom.assessment.value },
+    { num: "3.", label: "Rencana Intervensi", value: dom.intervention.value },
+    { num: "4.", label: "Rekomendasi Hasil Kesepakatan", value: dom.recommendation.value }
+  ];
 
-function updateSignaturePreview() {
-  if (signatureData) {
-    dom.signatureImg.src = signatureData;
-    dom.signatureImg.style.display = "block";
-    dom.signatureSpace.style.height = "5mm";
-    dom.clearSignatureBtn.style.display = "inline-block";
-  } else {
-    dom.signatureImg.removeAttribute("src");
-    dom.signatureImg.style.display = "none";
-    dom.signatureSpace.style.height = "20mm";
-    dom.clearSignatureBtn.style.display = "none";
+  mainSections.forEach(sec => {
+    activeContent = appendFlowRow(container, activeContent, sec);
+  });
+
+  // 6. Blok Tanda Tangan (Selalu utuh di akhir dokumen, pindah halaman jika tidak muat)
+  const sigBlock = document.createElement("div");
+  sigBlock.className = "signature";
+
+  const cityText = (dom.city.value || "").trim() || "Jakarta";
+  const meetingText = formatDate(dom.meetingDate.value);
+  const officerText = (dom.officer.value || "").trim();
+
+  sigBlock.innerHTML = `
+    <div class="signature-date">${cityText}, ${meetingText}</div>
+    <div>Petugas Pelaksana,</div>
+    <div class="signature-space" style="height:${signatureData ? "5mm" : "20mm"}"></div>
+    ${signatureData ? `<img src="${signatureData}" alt="Tanda Tangan Petugas">` : ""}
+    <div><b></b></div>
+  `;
+  sigBlock.querySelector("b").textContent = officerText;
+
+  activeContent.appendChild(sigBlock);
+
+  if (isOverflowing(activeContent)) {
+    activeContent.removeChild(sigBlock);
+    activeContent = createA4Page(container);
+    sigBlock.style.marginTop = "0";
+    activeContent.appendChild(sigBlock);
   }
+
+  updatePageCounter();
 }
 
-function updatePreview() {
-  updateTextPreview();
-  updateSignaturePreview();
+function updatePageCounter() {
+  const reportCount = dom.reportPages.querySelectorAll(".page").length;
+  const docCount = photoData.length > 0 ? Math.ceil(photoData.length / 2) : 1;
+  dom.pageSummary.textContent = `Format A4 | ${reportCount} Halaman Laporan + ${docCount} Halaman Dokumentasi`;
+}
+
+/* ==================================
+   4. HANDLER & PREVIEW DOKUMENTASI
+================================== */
+
+function removeSignature() {
+  signatureData = "";
+  dom.signatureInput.value = "";
+  dom.clearSignatureBtn.style.display = "none";
+  renderReportPages();
+  saveForm();
+}
+
+function removePhoto(index) {
+  photoData.splice(index, 1);
+  renderPhotos();
+  saveForm();
+}
+
+function renderPhotoThumbnails() {
+  dom.photoThumbList.innerHTML = "";
+  dom.photoCount.textContent = photoData.length
+    ? `${photoData.length} foto tersimpan.`
+    : "Belum ada foto yang diunggah.";
+
+  photoData.forEach((src, index) => {
+    const wrap = document.createElement("div");
+    wrap.className = "thumb-item";
+
+    const img = document.createElement("img");
+    img.src = src;
+    img.alt = `Foto ${index + 1}`;
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "thumb-del";
+    delBtn.title = "Hapus foto ini";
+    delBtn.textContent = "×";
+    delBtn.onclick = () => removePhoto(index);
+
+    wrap.appendChild(img);
+    wrap.appendChild(delBtn);
+    dom.photoThumbList.appendChild(wrap);
+  });
+}
+
+function renderPhotos() {
+  renderPhotoThumbnails();
+  dom.photoPages.innerHTML = "";
+
+  if (!photoData.length) {
+    dom.photoPages.innerHTML = `
+      <div class="page">
+        <div class="page-content">
+          <div class="page-two-title">DOKUMENTASI</div>
+          <div class="photo-grid">
+            <p style="color:#999;text-align:center">
+              Dokumentasi akan muncul setelah foto diunggah.
+            </p>
+          </div>
+        </div>
+      </div>
+    `;
+    updatePageCounter();
+    return;
+  }
+
+  for (let i = 0; i < photoData.length; i += 2) {
+    const page = document.createElement("div");
+    page.className = "page";
+
+    const content = document.createElement("div");
+    content.className = "page-content";
+
+    const title = document.createElement("div");
+    title.className = "page-two-title";
+    title.textContent = "DOKUMENTASI";
+    content.appendChild(title);
+
+    const grid = document.createElement("div");
+    grid.className = "photo-grid";
+
+    photoData.slice(i, i + 2).forEach((photo, idx) => {
+      const item = document.createElement("div");
+      item.className = "photo-item";
+
+      const img = document.createElement("img");
+      img.alt = `Dokumentasi Case Conference ${i + idx + 1}`;
+      img.src = photo;
+
+      item.appendChild(img);
+      grid.appendChild(item);
+    });
+
+    content.appendChild(grid);
+    page.appendChild(content);
+    dom.photoPages.appendChild(page);
+  }
+
+  updatePageCounter();
+}
+
+function updateAllPreviews() {
+  dom.clearSignatureBtn.style.display = signatureData ? "inline-block" : "none";
+  renderReportPages();
   renderPhotos();
 }
 
 /* ==================================
-   3. PENYIMPANAN DATABASE (INDEXEDDB)
+   5. PENYIMPANAN DATABASE (INDEXEDDB)
 ================================== */
 
 function openDatabase() {
@@ -229,24 +586,24 @@ async function loadForm() {
       signatureData = data.signature || "";
       photoData = Array.isArray(data.photos) ? data.photos : [];
 
-      updatePreview();
+      updateAllPreviews();
       dom.saveStatus.textContent =
         "✓ Data terakhir, tanda tangan, dan foto berhasil dipulihkan.";
     } else {
-      updatePreview();
+      updateAllPreviews();
       dom.saveStatus.textContent =
         "Data akan tersimpan otomatis saat kamu mengisi formulir.";
     }
   } catch (error) {
     console.error(error);
-    updatePreview();
+    updateAllPreviews();
     dom.saveStatus.textContent =
       "Data tersimpan tidak dapat dimuat. Coba buka kembali halaman.";
   }
 }
 
 /* ==================================
-   4. KONVERSI & KOMPRESI GAMBAR
+   6. KONVERSI & KOMPRESI GAMBAR
 ================================== */
 
 function fileToDataURL(file) {
@@ -293,106 +650,11 @@ async function compressPhoto(file) {
 }
 
 /* ==================================
-   5. HANDLER TANDA TANGAN
-================================== */
-
-function removeSignature() {
-  signatureData = "";
-  dom.signatureInput.value = "";
-  updateSignaturePreview();
-  saveForm();
-}
-
-/* ==================================
-   6. HANDLER & PREVIEW DOKUMENTASI
-================================== */
-
-function removePhoto(index) {
-  photoData.splice(index, 1);
-  renderPhotos();
-  saveForm();
-}
-
-function renderPhotoThumbnails() {
-  dom.photoThumbList.innerHTML = "";
-  dom.photoCount.textContent = photoData.length
-    ? `${photoData.length} foto tersimpan.`
-    : "Belum ada foto yang diunggah.";
-
-  photoData.forEach((src, index) => {
-    const wrap = document.createElement("div");
-    wrap.className = "thumb-item";
-
-    const img = document.createElement("img");
-    img.src = src;
-    img.alt = `Foto ${index + 1}`;
-
-    const delBtn = document.createElement("button");
-    delBtn.type = "button";
-    delBtn.className = "thumb-del";
-    delBtn.title = "Hapus foto ini";
-    delBtn.textContent = "×";
-    delBtn.onclick = () => removePhoto(index);
-
-    wrap.appendChild(img);
-    wrap.appendChild(delBtn);
-    dom.photoThumbList.appendChild(wrap);
-  });
-}
-
-function renderPhotos() {
-  renderPhotoThumbnails();
-  dom.photoPages.innerHTML = "";
-
-  if (!photoData.length) {
-    dom.photoPages.innerHTML = `
-      <div class="page">
-        <div class="page-two-title">DOKUMENTASI</div>
-        <div class="photo-grid">
-          <p style="color:#999;text-align:center">
-            Dokumentasi akan muncul setelah foto diunggah.
-          </p>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  for (let i = 0; i < photoData.length; i += 2) {
-    const page = document.createElement("div");
-    page.className = "page";
-
-    const title = document.createElement("div");
-    title.className = "page-two-title";
-    title.textContent = "DOKUMENTASI";
-    page.appendChild(title);
-
-    const grid = document.createElement("div");
-    grid.className = "photo-grid";
-
-    photoData.slice(i, i + 2).forEach((photo, idx) => {
-      const item = document.createElement("div");
-      item.className = "photo-item";
-
-      const img = document.createElement("img");
-      img.alt = `Dokumentasi Case Conference ${i + idx + 1}`;
-      img.src = photo;
-
-      item.appendChild(img);
-      grid.appendChild(item);
-    });
-
-    page.appendChild(grid);
-    dom.photoPages.appendChild(page);
-  }
-}
-
-/* ==================================
-   7. EKSPOR PDF A4 ANTI-BLANK & ANTI-TERPOTONG BARIS
+   7. EKSPOR PDF A4 (1 HALAMAN PRATINJAU = 1 HALAMAN PDF)
 ================================== */
 
 function getPdfFilename() {
-  const rawName = (dom.in_name.value || "").trim();
+  const rawName = (dom.name.value || "").trim();
   if (!rawName) return "Laporan_Hasil_Case_Conference.pdf";
 
   const safeName = rawName
@@ -403,72 +665,14 @@ function getPdfFilename() {
   return `Laporan_CC_${safeName}.pdf`;
 }
 
-function logoToBase64(imgEl) {
-  return new Promise(resolve => {
-    if (!imgEl || !imgEl.getAttribute("src")) return resolve(null);
-    if (imgEl.src.startsWith("data:")) return resolve(imgEl.src);
-
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.naturalWidth || 200;
-        canvas.height = img.naturalHeight || 200;
-        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/png"));
-      } catch (e) {
-        resolve(null);
-      }
-    };
-    img.onerror = () => resolve(null);
-    img.src = imgEl.src;
-  });
-}
-
-// Memecah teks panjang menjadi blok-blok kalimat terlindungi (break-inside: avoid)
-// agar html2pdf memotong halaman tepat di sela antarbaris, bukan membelah huruf.
-function prepareSafeLineBreaks(container) {
-  const valueNodes = container.querySelectorAll(".document-row .value");
-
-  valueNodes.forEach(node => {
-    const rawText = node.textContent || "";
-    if (!rawText.trim()) return;
-
-    const lines = rawText.split(/\n/);
-    node.innerHTML = "";
-
-    lines.forEach(line => {
-      if (!line.trim()) {
-        const spacer = document.createElement("div");
-        spacer.style.height = "1.4em";
-        spacer.className = "pdf-line-block";
-        node.appendChild(spacer);
-        return;
-      }
-
-      const chunks = line.match(/[^.!?]+[.!?]+\s*|[^.!?]+$/g) || [line];
-      chunks.forEach(chunk => {
-        const spanBlock = document.createElement("div");
-        spanBlock.className = "pdf-line-block";
-        spanBlock.textContent = chunk.trimEnd();
-        spanBlock.style.marginBottom = "1px";
-        spanBlock.style.breakInside = "avoid";
-        spanBlock.style.pageBreakInside = "avoid";
-        node.appendChild(spanBlock);
-      });
-    });
-  });
-}
-
 async function exportPDF() {
   const button = dom.exportBtn;
   const originalText = button.textContent;
-  const mainEl = document.querySelector("main");
   const headerEl = document.querySelector("header");
+  const mainEl = document.querySelector("main");
   const scrollY = window.scrollY;
 
-  let printStage = null;
+  let exportStage = null;
 
   button.disabled = true;
   button.textContent = "Membuat PDF...";
@@ -479,81 +683,64 @@ async function exportPDF() {
     }
 
     clearTimeout(saveTimer);
-    updatePreview();
+    await ensureSafeLogo();
+    updateAllPreviews();
     if (db) await saveToDatabase(collectFormData());
 
-    const sourceReport = dom.previewArea.querySelector(":scope > .page");
-    if (!sourceReport) throw new Error("Isi laporan tidak ditemukan.");
+    // Kumpulkan lembar laporan A4 + lembar dokumentasi A4 (jika ada foto)
+    const reportPageNodes = Array.from(dom.reportPages.querySelectorAll(".page"));
+    const photoPageNodes = photoData.length > 0
+      ? Array.from(dom.photoPages.querySelectorAll(".page"))
+      : [];
 
-    const safeLogo = await logoToBase64(document.getElementById("kemensosLogo"));
+    const allPages = [...reportPageNodes, ...photoPageNodes];
+    if (!allPages.length) throw new Error("Halaman laporan tidak ditemukan.");
 
     headerEl.style.display = "none";
     mainEl.style.display = "none";
     window.scrollTo(0, 0);
 
-    printStage = document.createElement("div");
-    printStage.id = "pdf-print-stage";
-    Object.assign(printStage.style, {
+    exportStage = document.createElement("div");
+    exportStage.id = "pdf-export-stage";
+    Object.assign(exportStage.style, {
       position: "static",
-      width: `${CONTENT_WIDTH_MM}mm`,
-      margin: "0 auto",
-      padding: "0",
-      background: "#ffffff",
-      color: "#111111",
-      fontFamily: "Calibri, Arial, sans-serif",
-      fontSize: "11pt",
-      lineHeight: "1.45"
-    });
-
-    const clonedReport = sourceReport.cloneNode(true);
-    Object.assign(clonedReport.style, {
-      display: "block",
-      width: "100%",
-      minHeight: "0",
-      height: "auto",
+      width: "210mm",
       margin: "0",
       padding: "0",
-      boxShadow: "none",
       background: "#ffffff"
     });
 
-    const clonedLogo = clonedReport.querySelector("#kemensosLogo");
-    if (clonedLogo) {
-      if (safeLogo) {
-        clonedLogo.removeAttribute("crossorigin");
-        clonedLogo.src = safeLogo;
-      } else {
-        clonedLogo.style.display = "none";
-      }
-    }
-
-    prepareSafeLineBreaks(clonedReport);
-
-    printStage.appendChild(clonedReport);
-
-    if (photoData.length > 0) {
-      const photoPageNodes = dom.photoPages.querySelectorAll(".page");
-      photoPageNodes.forEach(pageNode => {
-        const clonedPhotoPage = pageNode.cloneNode(true);
-        Object.assign(clonedPhotoPage.style, {
-          display: "block",
-          width: "100%",
-          minHeight: "0",
-          height: "auto",
-          margin: "0",
-          padding: "0",
-          boxShadow: "none",
-          background: "#ffffff",
-          pageBreakBefore: "always",
-          breakBefore: "page"
-        });
-        printStage.appendChild(clonedPhotoPage);
+    allPages.forEach((pageNode, index) => {
+      const clonedPage = pageNode.cloneNode(true);
+      Object.assign(clonedPage.style, {
+        width: "210mm",
+        height: "296.8mm",
+        minHeight: "296.8mm",
+        margin: "0",
+        padding: "18mm 25mm 20mm",
+        boxShadow: "none",
+        background: "#ffffff",
+        overflow: "hidden",
+        pageBreakAfter: index < allPages.length - 1 ? "always" : "auto",
+        breakAfter: index < allPages.length - 1 ? "page" : "auto"
       });
-    }
 
-    document.body.appendChild(printStage);
+      const logo = clonedPage.querySelector("#kemensosLogo");
+      if (logo) {
+        if (cachedLogoDataUrl) {
+          logo.removeAttribute("crossorigin");
+          logo.src = cachedLogoDataUrl;
+        } else {
+          logo.style.display = "none";
+        }
+      }
 
-    const images = Array.from(printStage.querySelectorAll("img"));
+      exportStage.appendChild(clonedPage);
+    });
+
+    document.body.appendChild(exportStage);
+
+    const images = Array.from(exportStage.querySelectorAll("img"));
     await Promise.all(
       images.map(img => {
         if (!img.getAttribute("src") || img.style.display === "none") return Promise.resolve();
@@ -565,7 +752,7 @@ async function exportPDF() {
     await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
 
     const options = {
-      margin: PDF_MARGIN,
+      margin: 0,
       filename: getPdfFilename(),
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
@@ -583,19 +770,18 @@ async function exportPDF() {
         compress: true
       },
       pagebreak: {
-        mode: ["css", "legacy"],
-        avoid: [".pdf-line-block", ".signature", ".photo-item", ".logo-area", ".document-title"]
+        mode: ["css", "legacy"]
       }
     };
 
-    await html2pdf().set(options).from(printStage).save();
+    await html2pdf().set(options).from(exportStage).save();
 
   } catch (error) {
     console.error("Gagal mengekspor PDF:", error);
     alert("PDF gagal dibuat: " + (error && error.message ? error.message : "Kesalahan tidak diketahui"));
   } finally {
-    if (printStage && printStage.parentNode) {
-      printStage.parentNode.removeChild(printStage);
+    if (exportStage && exportStage.parentNode) {
+      exportStage.parentNode.removeChild(exportStage);
     }
     headerEl.style.display = "";
     mainEl.style.display = "";
@@ -624,7 +810,7 @@ async function resetForm() {
     input.value = "";
   });
 
-  dom.in_city.value = "Jakarta";
+  dom.city.value = "Jakarta";
   dom.signatureInput.value = "";
   dom.photoInput.value = "";
 
@@ -633,7 +819,7 @@ async function resetForm() {
 
   try {
     if (db) await deleteFromDatabase();
-    updatePreview();
+    updateAllPreviews();
     dom.saveStatus.textContent = "Formulir telah direset.";
   } catch (error) {
     console.error(error);
@@ -652,11 +838,11 @@ function bindEvents() {
 
   formInputs.forEach(input => {
     input.addEventListener("input", () => {
-      updateTextPreview();
+      renderReportPages();
       saveForm();
     });
     input.addEventListener("change", () => {
-      updateTextPreview();
+      renderReportPages();
       saveForm();
     });
   });
@@ -673,7 +859,8 @@ function bindEvents() {
 
     try {
       signatureData = await fileToDataURL(file);
-      updateSignaturePreview();
+      dom.clearSignatureBtn.style.display = "inline-block";
+      renderReportPages();
       saveForm();
     } catch (error) {
       console.error(error);
@@ -708,13 +895,14 @@ function bindEvents() {
 async function initialize() {
   cacheDOM();
   bindEvents();
+  ensureSafeLogo().then(() => renderReportPages());
 
   try {
     await openDatabase();
     await loadForm();
   } catch (error) {
     console.error(error);
-    updatePreview();
+    updateAllPreviews();
     dom.saveStatus.textContent =
       "Browser tidak dapat mengaktifkan penyimpanan otomatis.";
   }
