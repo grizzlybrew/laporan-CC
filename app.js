@@ -1,8 +1,8 @@
 /* ==================================
-   1. PREVIEW DOKUMEN
+   1. KONFIGURASI & STATE
 ================================== */
 
-const fields = [
+const TEXT_FIELDS = [
   "name",
   "birth",
   "address",
@@ -24,70 +24,104 @@ let signatureData = "";
 let photoData = [];
 let saveTimer = null;
 
+// Cache elemen DOM yang sering diakses
+const dom = {};
+
+function cacheDOM() {
+  TEXT_FIELDS.forEach(id => {
+    dom["in_" + id] = document.getElementById(id);
+    dom["out_" + id] = document.getElementById("p-" + id);
+  });
+
+  dom.in_entry = document.getElementById("entry");
+  dom.out_entry = document.getElementById("p-entry");
+  dom.in_meetingDate = document.getElementById("meetingDate");
+  dom.out_meetingDate = document.getElementById("p-meetingDate");
+
+  dom.signatureImg = document.getElementById("p-signature");
+  dom.signatureSpace = document.getElementById("signatureSpace");
+  dom.signatureInput = document.getElementById("signatureInput");
+  dom.clearSignatureBtn = document.getElementById("clearSignatureBtn");
+
+  dom.photoInput = document.getElementById("photoInput");
+  dom.photoCount = document.getElementById("photoCount");
+  dom.photoThumbList = document.getElementById("photoThumbList");
+  dom.photoPages = document.getElementById("photoPages");
+
+  dom.saveStatus = document.getElementById("saveStatus");
+  dom.previewArea = document.querySelector(".preview-area");
+  dom.exportBtn = document.querySelector(".export");
+}
+
+/* ==================================
+   2. FORMAT & PREVIEW DOKUMEN
+================================== */
+
 function formatDate(value) {
   if (!value) return "";
-
   const parts = value.split("-");
+  if (parts.length !== 3) return value;
 
-  return new Date(
-    Number(parts[0]),
-    Number(parts[1]) - 1,
-    Number(parts[2])
-  ).toLocaleDateString("id-ID", {
+  const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  if (isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString("id-ID", {
     day: "numeric",
     month: "long",
     year: "numeric"
   });
 }
 
-function updatePreview() {
-  fields.forEach(id => {
-    const preview = document.getElementById("p-" + id);
-    const input = document.getElementById(id);
-
+function updateTextPreview() {
+  TEXT_FIELDS.forEach(id => {
+    const input = dom["in_" + id];
+    const preview = dom["out_" + id];
     if (preview && input) {
       preview.textContent = input.value.trim();
     }
   });
 
-  document.getElementById("p-entry").textContent =
-    formatDate(document.getElementById("entry").value);
+  dom.out_entry.textContent = formatDate(dom.in_entry.value);
+  dom.out_meetingDate.textContent = formatDate(dom.in_meetingDate.value);
+}
 
-  document.getElementById("p-meetingDate").textContent =
-    formatDate(document.getElementById("meetingDate").value);
-
-  const signature = document.getElementById("p-signature");
-  const signatureSpace = document.getElementById("signatureSpace");
-
+function updateSignaturePreview() {
   if (signatureData) {
-    signature.src = signatureData;
-    signature.style.display = "block";
-    signatureSpace.style.height = "5mm";
+    dom.signatureImg.src = signatureData;
+    dom.signatureImg.style.display = "block";
+    dom.signatureSpace.style.height = "5mm";
+    dom.clearSignatureBtn.style.display = "inline-block";
   } else {
-    signature.removeAttribute("src");
-    signature.style.display = "none";
-    signatureSpace.style.height = "20mm";
+    dom.signatureImg.removeAttribute("src");
+    dom.signatureImg.style.display = "none";
+    dom.signatureSpace.style.height = "20mm";
+    dom.clearSignatureBtn.style.display = "none";
   }
+}
 
+function updatePreview() {
+  updateTextPreview();
+  updateSignaturePreview();
   renderPhotos();
 }
 
-
 /* ==================================
-   2. PENYIMPANAN DATABASE
+   3. PENYIMPANAN DATABASE (INDEXEDDB)
 ================================== */
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("Browser tidak mendukung IndexedDB."));
+      return;
+    }
+
     const request = indexedDB.open(STORAGE_DB, 1);
 
     request.onupgradeneeded = function(event) {
       const database = event.target.result;
-
       if (!database.objectStoreNames.contains(STORAGE_STORE)) {
-        database.createObjectStore(STORAGE_STORE, {
-          keyPath: "id"
-        });
+        database.createObjectStore(STORAGE_STORE, { keyPath: "id" });
       }
     };
 
@@ -96,21 +130,17 @@ function openDatabase() {
       resolve(db);
     };
 
-    request.onerror = function() {
-      reject(request.error);
-    };
+    request.onerror = () => reject(request.error);
   });
 }
 
 function saveToDatabase(data) {
   return new Promise((resolve, reject) => {
+    if (!db) return reject(new Error("Database belum siap."));
     const transaction = db.transaction(STORAGE_STORE, "readwrite");
     const store = transaction.objectStore(STORAGE_STORE);
 
-    store.put({
-      id: STORAGE_ID,
-      data: data
-    });
+    store.put({ id: STORAGE_ID, data });
 
     transaction.oncomplete = resolve;
     transaction.onerror = () => reject(transaction.error);
@@ -120,19 +150,18 @@ function saveToDatabase(data) {
 
 function readFromDatabase() {
   return new Promise((resolve, reject) => {
+    if (!db) return resolve(null);
     const transaction = db.transaction(STORAGE_STORE, "readonly");
     const request = transaction.objectStore(STORAGE_STORE).get(STORAGE_ID);
 
-    request.onsuccess = () => {
-      resolve(request.result ? request.result.data : null);
-    };
-
+    request.onsuccess = () => resolve(request.result ? request.result.data : null);
     request.onerror = () => reject(request.error);
   });
 }
 
 function deleteFromDatabase() {
   return new Promise((resolve, reject) => {
+    if (!db) return resolve();
     const transaction = db.transaction(STORAGE_STORE, "readwrite");
     transaction.objectStore(STORAGE_STORE).delete(STORAGE_ID);
 
@@ -143,7 +172,6 @@ function deleteFromDatabase() {
 
 function collectFormData() {
   const data = {};
-
   const formInputs = document.querySelectorAll(
     ".form-panel input:not([type=file]), .form-panel textarea"
   );
@@ -154,34 +182,29 @@ function collectFormData() {
 
   data.signature = signatureData;
   data.photos = photoData;
-
   return data;
 }
 
 function saveForm() {
   clearTimeout(saveTimer);
-
-  const status = document.getElementById("saveStatus");
-  status.textContent = "Menyimpan perubahan...";
+  dom.saveStatus.textContent = "Menyimpan perubahan...";
 
   saveTimer = setTimeout(async () => {
     if (!db) {
-      status.textContent = "Penyimpanan otomatis belum tersedia.";
+      dom.saveStatus.textContent = "Penyimpanan otomatis belum tersedia.";
       return;
     }
 
     try {
       await saveToDatabase(collectFormData());
-
-      status.textContent =
+      dom.saveStatus.textContent =
         "✓ Semua data, tanda tangan, dan foto tersimpan otomatis.";
     } catch (error) {
       console.error(error);
-
-      status.textContent =
+      dom.saveStatus.textContent =
         "Penyimpanan gagal. Ruang penyimpanan browser mungkin penuh.";
     }
-  }, 500);
+  }, 400);
 }
 
 async function loadForm() {
@@ -202,64 +225,31 @@ async function loadForm() {
       signatureData = data.signature || "";
       photoData = Array.isArray(data.photos) ? data.photos : [];
 
-      document.getElementById("photoCount").textContent =
-        photoData.length
-          ? photoData.length + " foto tersimpan."
-          : "Belum ada foto yang diunggah.";
-
       updatePreview();
-
-      document.getElementById("saveStatus").textContent =
+      dom.saveStatus.textContent =
         "✓ Data terakhir, tanda tangan, dan foto berhasil dipulihkan.";
-
     } else {
       updatePreview();
-
-      document.getElementById("saveStatus").textContent =
+      dom.saveStatus.textContent =
         "Data akan tersimpan otomatis saat kamu mengisi formulir.";
     }
-
   } catch (error) {
     console.error(error);
-
-    document.getElementById("saveStatus").textContent =
+    updatePreview();
+    dom.saveStatus.textContent =
       "Data tersimpan tidak dapat dimuat. Coba buka kembali halaman.";
   }
 }
 
-
 /* ==================================
-   3. AUTOSAVE SEMUA ISIAN
-================================== */
-
-const formInputs = document.querySelectorAll(
-  ".form-panel input:not([type=file]), .form-panel textarea"
-);
-
-formInputs.forEach(input => {
-  input.addEventListener("input", function() {
-    updatePreview();
-    saveForm();
-  });
-
-  input.addEventListener("change", function() {
-    updatePreview();
-    saveForm();
-  });
-});
-
-
-/* ==================================
-   4. FILE KE DATA URL
+   4. KONVERSI & KOMPRESI GAMBAR
 ================================== */
 
 function fileToDataURL(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-
     reader.onload = () => resolve(reader.result);
     reader.onerror = () => reject(reader.error);
-
     reader.readAsDataURL(file);
   });
 }
@@ -276,11 +266,7 @@ async function compressPhoto(file) {
       let height = image.height;
 
       if (width > maxDimension || height > maxDimension) {
-        const ratio = Math.min(
-          maxDimension / width,
-          maxDimension / height
-        );
-
+        const ratio = Math.min(maxDimension / width, maxDimension / height);
         width = Math.round(width * ratio);
         height = Math.round(height * ratio);
       }
@@ -290,6 +276,8 @@ async function compressPhoto(file) {
       canvas.height = height;
 
       const context = canvas.getContext("2d");
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, width, height);
       context.drawImage(image, 0, 0, width, height);
 
       resolve(canvas.toDataURL("image/jpeg", 0.85));
@@ -300,46 +288,60 @@ async function compressPhoto(file) {
   });
 }
 
-
 /* ==================================
-   5. UPLOAD TANDA TANGAN
+   5. HANDLER TANDA TANGAN
 ================================== */
 
-document.getElementById("signatureInput")
-.addEventListener("change", async function() {
-  const file = this.files[0];
-
-  if (!file) return;
-
-  if (!file.type.startsWith("image/")) {
-    alert("Silakan pilih file gambar.");
-    this.value = "";
-    return;
-  }
-
-  try {
-    signatureData = await fileToDataURL(file);
-
-    updatePreview();
-    saveForm();
-
-  } catch (error) {
-    console.error(error);
-    alert("Tanda tangan gagal dibaca. Silakan coba kembali.");
-  }
-});
-
+function removeSignature() {
+  signatureData = "";
+  dom.signatureInput.value = "";
+  updateSignaturePreview();
+  saveForm();
+}
 
 /* ==================================
-   6. UPLOAD DAN PREVIEW DOKUMENTASI
+   6. HANDLER & PREVIEW DOKUMENTASI
 ================================== */
+
+function removePhoto(index) {
+  photoData.splice(index, 1);
+  renderPhotos();
+  saveForm();
+}
+
+function renderPhotoThumbnails() {
+  dom.photoThumbList.innerHTML = "";
+  dom.photoCount.textContent = photoData.length
+    ? `${photoData.length} foto tersimpan.`
+    : "Belum ada foto yang diunggah.";
+
+  photoData.forEach((src, index) => {
+    const wrap = document.createElement("div");
+    wrap.className = "thumb-item";
+
+    const img = document.createElement("img");
+    img.src = src;
+    img.alt = `Foto ${index + 1}`;
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "thumb-del";
+    delBtn.title = "Hapus foto ini";
+    delBtn.textContent = "×";
+    delBtn.onclick = () => removePhoto(index);
+
+    wrap.appendChild(img);
+    wrap.appendChild(delBtn);
+    dom.photoThumbList.appendChild(wrap);
+  });
+}
 
 function renderPhotos() {
-  const container = document.getElementById("photoPages");
-  container.innerHTML = "";
+  renderPhotoThumbnails();
+  dom.photoPages.innerHTML = "";
 
   if (!photoData.length) {
-    container.innerHTML = `
+    dom.photoPages.innerHTML = `
       <div class="page">
         <div class="page-two-title">DOKUMENTASI</div>
         <div class="photo-grid">
@@ -352,7 +354,7 @@ function renderPhotos() {
     return;
   }
 
-  // Dua foto per halaman dokumentasi.
+  // Dua foto per halaman dokumentasi
   for (let i = 0; i < photoData.length; i += 2) {
     const page = document.createElement("div");
     page.className = "page";
@@ -366,13 +368,13 @@ function renderPhotos() {
     grid.className = "photo-grid";
     grid.style.gridTemplateRows = "1fr 1fr";
 
-    photoData.slice(i, i + 2).forEach(photo => {
+    photoData.slice(i, i + 2).forEach((photo, idx) => {
       const item = document.createElement("div");
       item.className = "photo-item";
       item.style.height = "82mm";
 
       const img = document.createElement("img");
-      img.alt = "Dokumentasi Case Conference";
+      img.alt = `Dokumentasi Case Conference ${i + idx + 1}`;
       img.src = photo;
 
       item.appendChild(img);
@@ -380,50 +382,30 @@ function renderPhotos() {
     });
 
     page.appendChild(grid);
-    container.appendChild(page);
+    dom.photoPages.appendChild(page);
   }
 }
-
-document.getElementById("photoInput")
-.addEventListener("change", async function() {
-  const files = Array.from(this.files || []);
-  const validFiles = files.filter(file => file.type.startsWith("image/"));
-
-  if (!validFiles.length) return;
-
-  try {
-    document.getElementById("photoCount").textContent =
-      "Memproses " + validFiles.length + " foto...";
-
-    const newPhotos = await Promise.all(
-      validFiles.map(file => compressPhoto(file))
-    );
-
-    // Foto baru ditambahkan ke dokumentasi yang sudah ada.
-    photoData = photoData.concat(newPhotos);
-
-    document.getElementById("photoCount").textContent =
-      photoData.length + " foto tersimpan.";
-
-    updatePreview();
-    saveForm();
-
-    this.value = "";
-
-  } catch (error) {
-    console.error(error);
-    alert("Ada foto yang gagal diproses. Silakan coba kembali.");
-  }
-});
 
 /* ==================================
    7. EKSPOR PDF LANGSUNG KE LAPTOP
 ================================== */
 
+function getPdfFilename() {
+  const rawName = (dom.in_name.value || "").trim();
+  if (!rawName) return "Laporan_Hasil_Case_Conference.pdf";
+
+  const safeName = rawName
+    .replace(/[^a-zA-Z0-9\s-_]/g, "")
+    .trim()
+    .replace(/\s+/g, "_");
+
+  return `Laporan_CC_${safeName}.pdf`;
+}
+
 async function exportPDF() {
-  const button = document.querySelector(".export");
+  const button = dom.exportBtn;
   const originalText = button.textContent;
-  const previewArea = document.querySelector(".preview-area");
+  const previewArea = dom.previewArea;
   const originalStyle = previewArea.getAttribute("style");
   let temporaryStyle = null;
 
@@ -432,26 +414,19 @@ async function exportPDF() {
 
   try {
     if (typeof html2pdf === "undefined") {
-      throw new Error("Komponen ekspor PDF belum berhasil dimuat. Periksa koneksi internet.");
+      throw new Error("Library html2pdf belum termuat. Periksa koneksi internet Anda.");
     }
 
     clearTimeout(saveTimer);
     updatePreview();
     if (db) await saveToDatabase(collectFormData());
 
-    // Render area pratinjau yang asli. Tidak membuat cloneNode atau
-    // memindahkan konten ke elemen tersembunyi yang berisiko menjadi blank.
     const report = previewArea.querySelector(":scope > .page");
     if (!report || !report.querySelector(".document-title")) {
       throw new Error("Isi laporan tidak ditemukan. Muat ulang halaman lalu coba lagi.");
     }
 
-    const visibleText = report.innerText.trim();
-    if (!visibleText) {
-      throw new Error("Pratinjau laporan masih kosong. Isi formulir terlebih dahulu.");
-    }
-
-    // Paksa area pratinjau menjadi bidang A4 yang dapat dibaca html2canvas.
+    // Paksa area pratinjau menjadi bidang A4 penuh untuk html2canvas
     previewArea.style.width = "794px";
     previewArea.style.maxWidth = "none";
     previewArea.style.margin = "0";
@@ -525,10 +500,10 @@ async function exportPDF() {
     `;
     document.head.appendChild(temporaryStyle);
 
-    // Tunggu gambar yang sudah tersedia selesai didekode. Gambar logo eksternal
-    // yang gagal dimuat tidak akan menggagalkan seluruh proses PDF.
+    // Pastikan seluruh gambar selesai dimuat/didekode
     const images = Array.from(previewArea.querySelectorAll("img"));
     await Promise.all(images.map(img => {
+      if (!img.getAttribute("src")) return Promise.resolve();
       if (typeof img.decode === "function") return img.decode().catch(() => {});
       if (img.complete) return Promise.resolve();
       return new Promise(resolve => {
@@ -541,14 +516,14 @@ async function exportPDF() {
 
     const options = {
       margin: 0,
-      filename: "Laporan_Hasil_Case_Conference.pdf",
+      filename: getPdfFilename(),
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
         scale: 2,
         useCORS: true,
-        allowTaint: false,
+        allowTaint: true,
         backgroundColor: "#ffffff",
-        logging: true,
+        logging: false,
         scrollX: 0,
         scrollY: 0,
         windowWidth: 1200
@@ -590,49 +565,100 @@ async function resetForm() {
     input.value = "";
   });
 
-  document.getElementById("city").value = "Jakarta";
-
-  document.getElementById("signatureInput").value = "";
-  document.getElementById("photoInput").value = "";
+  dom.in_city.value = "Jakarta";
+  dom.signatureInput.value = "";
+  dom.photoInput.value = "";
 
   signatureData = "";
   photoData = [];
 
-  document.getElementById("photoCount").textContent =
-    "Belum ada foto yang diunggah.";
-
   try {
-    if (db) {
-      await deleteFromDatabase();
-    }
-
+    if (db) await deleteFromDatabase();
     updatePreview();
-
-    document.getElementById("saveStatus").textContent =
-      "Formulir telah direset.";
-
+    dom.saveStatus.textContent = "Formulir telah direset.";
   } catch (error) {
     console.error(error);
     alert("Data gagal dihapus dari penyimpanan browser.");
   }
 }
 
-
 /* ==================================
-   9. INISIALISASI
+   9. EVENT LISTENERS & INISIALISASI
 ================================== */
 
+function bindEvents() {
+  const formInputs = document.querySelectorAll(
+    ".form-panel input:not([type=file]), .form-panel textarea"
+  );
+
+  formInputs.forEach(input => {
+    input.addEventListener("input", () => {
+      updateTextPreview();
+      saveForm();
+    });
+    input.addEventListener("change", () => {
+      updateTextPreview();
+      saveForm();
+    });
+  });
+
+  dom.signatureInput.addEventListener("change", async function() {
+    const file = this.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert("Silakan pilih file gambar.");
+      this.value = "";
+      return;
+    }
+
+    try {
+      signatureData = await fileToDataURL(file);
+      updateSignaturePreview();
+      saveForm();
+    } catch (error) {
+      console.error(error);
+      alert("Tanda tangan gagal dibaca. Silakan coba kembali.");
+    }
+  });
+
+  dom.photoInput.addEventListener("change", async function() {
+    const files = Array.from(this.files || []);
+    const validFiles = files.filter(file => file.type.startsWith("image/"));
+
+    if (!validFiles.length) return;
+
+    try {
+      dom.photoCount.textContent = `Memproses ${validFiles.length} foto...`;
+
+      const newPhotos = await Promise.all(
+        validFiles.map(file => compressPhoto(file))
+      );
+
+      photoData = photoData.concat(newPhotos);
+      renderPhotos();
+      saveForm();
+      this.value = "";
+    } catch (error) {
+      console.error(error);
+      alert("Ada foto yang gagal diproses. Silakan coba kembali.");
+    }
+  });
+}
+
 async function initialize() {
+  cacheDOM();
+  bindEvents();
+
   try {
     await openDatabase();
     await loadForm();
-
   } catch (error) {
     console.error(error);
-
-    document.getElementById("saveStatus").textContent =
+    updatePreview();
+    dom.saveStatus.textContent =
       "Browser tidak dapat mengaktifkan penyimpanan otomatis.";
   }
 }
 
-initialize();
+document.addEventListener("DOMContentLoaded", initialize);
