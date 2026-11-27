@@ -21,10 +21,8 @@ const STORAGE_ID = "currentReport";
 
 // Standar Margin A4 (mm): Atas 18, Kanan 25, Bawah 20, Kiri 25
 // Lebar area konten = 210 - (25 + 25) = 160mm
-// Tinggi area konten = 297 - (18 + 20) = 259mm
 const PDF_MARGIN = [18, 25, 20, 25];
 const CONTENT_WIDTH_MM = 160;
-const CONTENT_HEIGHT_MM = 259;
 
 let db = null;
 let signatureData = "";
@@ -390,7 +388,7 @@ function renderPhotos() {
 }
 
 /* ==================================
-   7. EKSPOR PDF A4 DENGAN MARGIN & PAGINASI RAPI
+   7. EKSPOR PDF A4 ANTI-BLANK & MARGIN RAPI
 ================================== */
 
 function getPdfFilename() {
@@ -405,53 +403,38 @@ function getPdfFilename() {
   return `Laporan_CC_${safeName}.pdf`;
 }
 
-function imageToSafeDataURL(imgEl) {
+// Konversi gambar logo eksternal ke Base64 aman agar tidak memicu taint/blank pada canvas
+function logoToBase64(imgEl) {
   return new Promise(resolve => {
     if (!imgEl || !imgEl.getAttribute("src")) return resolve(null);
+    if (imgEl.src.startsWith("data:")) return resolve(imgEl.src);
 
-    const src = imgEl.src;
-    if (src.startsWith("data:")) return resolve(src);
-
-    const tempImg = new Image();
-    tempImg.crossOrigin = "anonymous";
-
-    tempImg.onload = () => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
       try {
         const canvas = document.createElement("canvas");
-        canvas.width = tempImg.naturalWidth || 200;
-        canvas.height = tempImg.naturalHeight || 200;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(tempImg, 0, 0, canvas.width, canvas.height);
+        canvas.width = img.naturalWidth || 200;
+        canvas.height = img.naturalHeight || 200;
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
         resolve(canvas.toDataURL("image/png"));
       } catch (e) {
         resolve(null);
       }
     };
-
-    tempImg.onerror = () => resolve(null);
-    tempImg.src = src;
+    img.onerror = () => resolve(null);
+    img.src = imgEl.src;
   });
-}
-
-// Konversi ukuran mm ke piksel layar aktual browser untuk kalkulasi presisi
-function getPxPerMm() {
-  const ruler = document.createElement("div");
-  ruler.style.width = "100mm";
-  ruler.style.position = "absolute";
-  ruler.style.visibility = "hidden";
-  document.body.appendChild(ruler);
-  const pxPerMm = ruler.offsetWidth / 100;
-  document.body.removeChild(ruler);
-  return pxPerMm;
 }
 
 async function exportPDF() {
   const button = dom.exportBtn;
   const originalText = button.textContent;
-  const scrollX = window.scrollX;
+  const mainEl = document.querySelector("main");
+  const headerEl = document.querySelector("header");
   const scrollY = window.scrollY;
 
-  let exportWrapper = null;
+  let printStage = null;
 
   button.disabled = true;
   button.textContent = "Membuat PDF...";
@@ -466,36 +449,31 @@ async function exportPDF() {
     if (db) await saveToDatabase(collectFormData());
 
     const sourceReport = dom.previewArea.querySelector(":scope > .page");
-    if (!sourceReport) {
-      throw new Error("Isi laporan tidak ditemukan.");
-    }
+    if (!sourceReport) throw new Error("Isi laporan tidak ditemukan.");
 
-    const logoEl = document.getElementById("kemensosLogo");
-    const safeLogoDataUrl = await imageToSafeDataURL(logoEl);
+    // 1. Amankan logo menjadi Base64
+    const safeLogo = await logoToBase64(document.getElementById("kemensosLogo"));
 
+    // 2. Sembunyikan sementara UI utama & tempatkan panggung cetak di aliran dokumen normal (static)
+    headerEl.style.display = "none";
+    mainEl.style.display = "none";
     window.scrollTo(0, 0);
 
-    // Wadah ekspor selebar area konten A4 (160mm), margin 18/25/20/25mm
-    // ditangani otomatis oleh jsPDF/html2pdf di SETIAP halaman baru!
-    exportWrapper = document.createElement("div");
-    exportWrapper.id = "pdf-export-wrapper";
-    Object.assign(exportWrapper.style, {
-      position: "fixed",
-      left: "0",
-      top: "0",
-      width: `${CONTENT_WIDTH_MM}mm`,
+    printStage = document.createElement("div");
+    printStage.id = "pdf-print-stage";
+    Object.assign(printStage.style, {
+      position: "static",
+      width: `${CONTENT_WIDTH_MM}mm`, // 210mm (A4) dikurangi margin kiri 25mm & kanan 25mm
+      margin: "0 auto",
+      padding: "0",
       background: "#ffffff",
       color: "#111111",
       fontFamily: "Calibri, Arial, sans-serif",
       fontSize: "11pt",
-      lineHeight: "1.4",
-      zIndex: "999999",
-      margin: "0",
-      padding: "0",
-      boxSizing: "border-box"
+      lineHeight: "1.4"
     });
 
-    // Kloning konten laporan utama tanpa padding internal (karena sudah pakai PDF_MARGIN)
+    // 3. Kloning laporan utama tanpa padding (margin ditangani html2pdf di setiap halaman)
     const clonedReport = sourceReport.cloneNode(true);
     Object.assign(clonedReport.style, {
       display: "block",
@@ -510,50 +488,17 @@ async function exportPDF() {
 
     const clonedLogo = clonedReport.querySelector("#kemensosLogo");
     if (clonedLogo) {
-      if (safeLogoDataUrl) {
+      if (safeLogo) {
         clonedLogo.removeAttribute("crossorigin");
-        clonedLogo.src = safeLogoDataUrl;
+        clonedLogo.src = safeLogo;
       } else {
         clonedLogo.style.display = "none";
       }
     }
 
-    exportWrapper.appendChild(clonedReport);
-    document.body.appendChild(exportWrapper);
+    printStage.appendChild(clonedReport);
 
-    // Tunggu seluruh gambar di laporan utama ter-decode
-    const reportImages = Array.from(clonedReport.querySelectorAll("img"));
-    await Promise.all(
-      reportImages.map(img => {
-        if (!img.getAttribute("src") || img.style.display === "none") return Promise.resolve();
-        if (typeof img.decode === "function") return img.decode().catch(() => {});
-        return Promise.resolve();
-      })
-    );
-
-    // Kalkulasi posisi tanda tangan agar tidak pernah terpotong & rapi di bagian bawah halaman terakhir
-    const pxPerMm = getPxPerMm();
-    const pageContentHeightPx = CONTENT_HEIGHT_MM * pxPerMm;
-    const signatureEl = clonedReport.querySelector(".signature");
-
-    if (signatureEl) {
-      const sigTop = signatureEl.offsetTop;
-      const sigHeight = signatureEl.offsetHeight;
-      const sigBottom = sigTop + sigHeight;
-
-      const startPageIndex = Math.floor(sigTop / pageContentHeightPx);
-      const endPageIndex = Math.floor((sigBottom - 1) / pageContentHeightPx);
-
-      // Jika blok tanda tangan melintasi batas halaman (terpotong), dorong utuh ke awal halaman berikutnya
-      if (endPageIndex > startPageIndex) {
-        const nextPageStartPx = (startPageIndex + 1) * pageContentHeightPx;
-        const pushDownPx = nextPageStartPx - sigTop + (5 * pxPerMm);
-        const currentMarginTop = parseFloat(getComputedStyle(signatureEl).marginTop) || 0;
-        signatureEl.style.marginTop = `${currentMarginTop + pushDownPx}px`;
-      }
-    }
-
-    // Tambahkan halaman dokumentasi jika ada foto (masing-masing mulai di halaman baru)
+    // 4. Kloning halaman dokumentasi jika ada foto (mulai di halaman baru)
     if (photoData.length > 0) {
       const photoPageNodes = dom.photoPages.querySelectorAll(".page");
       photoPageNodes.forEach(pageNode => {
@@ -570,22 +515,27 @@ async function exportPDF() {
           pageBreakBefore: "always",
           breakBefore: "page"
         });
-        exportWrapper.appendChild(clonedPhotoPage);
+        printStage.appendChild(clonedPhotoPage);
       });
-
-      const docImages = Array.from(exportWrapper.querySelectorAll("#photoPages img, .photo-item img"));
-      await Promise.all(
-        docImages.map(img => {
-          if (typeof img.decode === "function") return img.decode().catch(() => {});
-          return Promise.resolve();
-        })
-      );
     }
+
+    document.body.appendChild(printStage);
+
+    // 5. Tunggu semua gambar (logo, TTD, foto) selesai di-decode
+    const images = Array.from(printStage.querySelectorAll("img"));
+    await Promise.all(
+      images.map(img => {
+        if (!img.getAttribute("src") || img.style.display === "none") return Promise.resolve();
+        if (typeof img.decode === "function") return img.decode().catch(() => {});
+        return Promise.resolve();
+      })
+    );
 
     await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
 
+    // 6. Render PDF dengan margin A4 resmi di setiap halaman [Atas, Kanan, Bawah, Kiri]
     const options = {
-      margin: PDF_MARGIN, // [Atas 18mm, Kanan 25mm, Bawah 20mm, Kiri 25mm] di setiap halaman A4
+      margin: PDF_MARGIN,
       filename: getPdfFilename(),
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
@@ -594,11 +544,7 @@ async function exportPDF() {
         allowTaint: false,
         backgroundColor: "#ffffff",
         scrollX: 0,
-        scrollY: 0,
-        x: 0,
-        y: 0,
-        width: exportWrapper.offsetWidth,
-        windowWidth: exportWrapper.offsetWidth
+        scrollY: 0
       },
       jsPDF: {
         unit: "mm",
@@ -612,16 +558,19 @@ async function exportPDF() {
       }
     };
 
-    await html2pdf().set(options).from(exportWrapper).save();
+    await html2pdf().set(options).from(printStage).save();
 
   } catch (error) {
     console.error("Gagal mengekspor PDF:", error);
     alert("PDF gagal dibuat: " + (error && error.message ? error.message : "Kesalahan tidak diketahui"));
   } finally {
-    if (exportWrapper && exportWrapper.parentNode) {
-      exportWrapper.parentNode.removeChild(exportWrapper);
+    // 7. Hapus panggung cetak & kembalikan tampilan layar seperti semula
+    if (printStage && printStage.parentNode) {
+      printStage.parentNode.removeChild(printStage);
     }
-    window.scrollTo(scrollX, scrollY);
+    headerEl.style.display = "";
+    mainEl.style.display = "";
+    window.scrollTo(0, scrollY);
     button.disabled = false;
     button.textContent = originalText;
   }
