@@ -192,21 +192,26 @@ textarea {
   margin-bottom: 15px;
 }
 
-/* KERTAS A4 (PRATINJAU LAYAR) */
+/* LEMBAR KERTAS A4 PRESISI (210mm x 297mm, Margin 18/25/20/25mm) */
 
 .page {
   background: white;
   width: 210mm;
-  min-height: 297mm;
+  height: 297mm;
   padding: 18mm 25mm 20mm;
   margin: 0 auto 25px;
   color: #111;
   font-family: Calibri, Arial, sans-serif;
   font-size: 11pt;
-  line-height: 1.4;
+  line-height: 1.45;
   box-shadow: 0 3px 15px #00000015;
-  display: flex;
-  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.page-content {
+  width: 100%;
+  height: 100%;
 }
 
 /* LOGO KEMENSOS PNG */
@@ -235,7 +240,7 @@ textarea {
   text-transform: uppercase;
 }
 
-/* ISI DOKUMEN (AREA KONTEN 160MM PADA KERTAS A4 210MM - MARGIN KIRI/KANAN 25MM) */
+/* ISI DOKUMEN */
 
 .document-row {
   display: grid;
@@ -249,10 +254,20 @@ textarea {
 }
 
 .document-row .value {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
   text-align: justify;
   font-weight: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.doc-paragraph {
+  margin: 0 0 6px 0;
+  text-align: justify;
+  text-justify: inter-word;
+}
+
+.doc-paragraph:last-child {
+  margin-bottom: 0;
 }
 
 .identity {
@@ -264,8 +279,8 @@ textarea {
 }
 
 .section-row {
-  margin-top: 7px;
-  margin-bottom: 5px;
+  margin-top: 8px;
+  margin-bottom: 6px;
 }
 
 /* TANGGAL DAN TANDA TANGAN */
@@ -275,8 +290,6 @@ textarea {
   margin-left: 0;
   width: 75mm;
   line-height: 1.5;
-  break-inside: avoid;
-  page-break-inside: avoid;
 }
 
 .signature-date {
@@ -318,8 +331,6 @@ textarea {
   display: flex;
   justify-content: center;
   align-items: center;
-  break-inside: avoid;
-  page-break-inside: avoid;
 }
 
 .photo-grid img {
@@ -340,11 +351,11 @@ textarea {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 18mm 25mm 20mm 25mm;
+    margin: 0;
   }
 
   html, body {
-    width: auto;
+    width: 210mm;
     margin: 0 !important;
     padding: 0 !important;
     background: #fff !important;
@@ -362,7 +373,7 @@ textarea {
   main > section,
   .preview-area {
     display: block !important;
-    width: 100% !important;
+    width: 210mm !important;
     margin: 0 !important;
     padding: 0 !important;
     overflow: visible !important;
@@ -371,43 +382,11 @@ textarea {
     background: #fff !important;
   }
 
-  .preview-area > .page:first-child {
-    display: block !important;
-    width: 100% !important;
-    min-height: 0 !important;
-    height: auto !important;
+  .page {
+    width: 210mm !important;
+    height: 297mm !important;
     margin: 0 !important;
-    padding: 0 !important;
-    overflow: visible !important;
-    box-shadow: none !important;
-  }
-
-  .document-row,
-  .identity,
-  .document-row .value {
-    break-inside: auto !important;
-    page-break-inside: auto !important;
-  }
-
-  .signature {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  #photoPages {
-    display: block !important;
-    width: 100% !important;
-    break-before: page !important;
-    page-break-before: always !important;
-  }
-
-  #photoPages .page {
-    display: block !important;
-    width: 100% !important;
-    min-height: 0 !important;
-    height: auto !important;
-    margin: 0 !important;
-    padding: 0 !important;
+    padding: 18mm 25mm 20mm !important;
     box-shadow: none !important;
     break-after: page !important;
     page-break-after: always !important;
@@ -416,23 +395,5 @@ textarea {
   #photoPages .page:last-child {
     break-after: auto !important;
     page-break-after: auto !important;
-  }
-
-  #photoPages .photo-grid {
-    display: grid !important;
-    grid-template-columns: 1fr !important;
-    gap: 10mm !important;
-  }
-
-  #photoPages .photo-item {
-    height: 112mm !important;
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
-  #photoPages .photo-item img {
-    max-width: 100% !important;
-    max-height: 112mm !important;
-    object-fit: contain !important;
   }
 }
