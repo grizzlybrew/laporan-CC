@@ -192,7 +192,7 @@ textarea {
   margin-bottom: 15px;
 }
 
-/* KERTAS A4 */
+/* KERTAS A4 (PRATINJAU LAYAR) */
 
 .page {
   background: white;
@@ -205,6 +205,8 @@ textarea {
   font-size: 11pt;
   line-height: 1.4;
   box-shadow: 0 3px 15px #00000015;
+  display: flex;
+  flex-direction: column;
 }
 
 /* LOGO KEMENSOS PNG */
@@ -233,11 +235,11 @@ textarea {
   text-transform: uppercase;
 }
 
-/* ISI DOKUMEN */
+/* ISI DOKUMEN (AREA KONTEN 160MM PADA KERTAS A4 210MM - MARGIN KIRI/KANAN 25MM) */
 
 .document-row {
   display: grid;
-  grid-template-columns: 7mm 70mm 5mm minmax(0, 1fr);
+  grid-template-columns: 7mm 68mm 5mm minmax(0, 1fr);
   align-items: start;
   margin-bottom: 3px;
 }
@@ -258,7 +260,7 @@ textarea {
 }
 
 .identity .document-row {
-  grid-template-columns: 7mm 63mm 5mm minmax(0, 1fr);
+  grid-template-columns: 7mm 61mm 5mm minmax(0, 1fr);
 }
 
 .section-row {
@@ -269,11 +271,12 @@ textarea {
 /* TANGGAL DAN TANDA TANGAN */
 
 .signature {
-  margin-top: 17mm;
+  margin-top: 15mm;
   margin-left: 0;
   width: 75mm;
   line-height: 1.5;
   break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .signature-date {
@@ -300,26 +303,28 @@ textarea {
   text-align: center;
   font-weight: bold;
   font-size: 12pt;
-  margin-bottom: 12mm;
+  margin-bottom: 10mm;
 }
 
 .photo-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 12mm;
+  gap: 10mm;
   align-items: center;
 }
 
 .photo-item {
-  height: 190mm;
+  height: 112mm;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
+  align-items: center;
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .photo-grid img {
   max-width: 100%;
-  max-height: 180mm;
+  max-height: 112mm;
   object-fit: contain;
 }
 
@@ -331,15 +336,15 @@ textarea {
   }
 }
 
-/* PRINT PDF: A4 NATURAL PAGINATION */
+/* PRINT BROWSER LANGSUNG (CTRL + P) */
 @media print {
   @page {
     size: A4 portrait;
-    margin: 0;
+    margin: 18mm 25mm 20mm 25mm;
   }
 
   html, body {
-    width: 210mm;
+    width: auto;
     margin: 0 !important;
     padding: 0 !important;
     background: #fff !important;
@@ -353,23 +358,11 @@ textarea {
     display: none !important;
   }
 
-  main {
-    display: block !important;
-    width: 210mm !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-
-  main > section {
-    display: block !important;
-    width: 210mm !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-
+  main,
+  main > section,
   .preview-area {
     display: block !important;
-    width: 210mm !important;
+    width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
     overflow: visible !important;
@@ -380,17 +373,13 @@ textarea {
 
   .preview-area > .page:first-child {
     display: block !important;
-    width: 210mm !important;
+    width: 100% !important;
     min-height: 0 !important;
     height: auto !important;
     margin: 0 !important;
-    padding: 18mm 25mm 20mm !important;
+    padding: 0 !important;
     overflow: visible !important;
     box-shadow: none !important;
-    break-after: auto !important;
-    page-break-after: auto !important;
-    break-inside: auto !important;
-    page-break-inside: auto !important;
   }
 
   .document-row,
@@ -400,11 +389,6 @@ textarea {
     page-break-inside: auto !important;
   }
 
-  .document-row .value {
-    overflow-wrap: anywhere !important;
-    word-break: normal !important;
-  }
-
   .signature {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
@@ -412,19 +396,18 @@ textarea {
 
   #photoPages {
     display: block !important;
-    width: 210mm !important;
+    width: 100% !important;
     break-before: page !important;
     page-break-before: always !important;
   }
 
   #photoPages .page {
     display: block !important;
-    width: 210mm !important;
-    min-height: 297mm !important;
-    height: 297mm !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    height: auto !important;
     margin: 0 !important;
-    padding: 18mm 25mm 20mm !important;
-    overflow: hidden !important;
+    padding: 0 !important;
     box-shadow: none !important;
     break-after: page !important;
     page-break-after: always !important;
@@ -438,23 +421,18 @@ textarea {
   #photoPages .photo-grid {
     display: grid !important;
     grid-template-columns: 1fr !important;
-    grid-template-rows: 1fr 1fr !important;
-    gap: 8mm !important;
-    align-items: center !important;
+    gap: 10mm !important;
   }
 
   #photoPages .photo-item {
-    height: 82mm !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    height: 112mm !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
 
   #photoPages .photo-item img {
     max-width: 100% !important;
-    max-height: 82mm !important;
+    max-height: 112mm !important;
     object-fit: contain !important;
   }
 }
