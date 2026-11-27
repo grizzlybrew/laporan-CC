@@ -688,14 +688,23 @@ async function compressPhoto(file) {
 
 function getPdfFilename() {
   const rawName = (dom.name.value || "").trim();
-  if (!rawName) return "Laporan_Hasil_Case_Conference.pdf";
+  const rawMeetingDate = (dom.meetingDate.value || "").trim();
 
   const safeName = rawName
-    .replace(/[^a-zA-Z0-9\s-_]/g, "")
-    .trim()
-    .replace(/\s+/g, "_");
+    ? rawName.replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ")
+    : "Tanpa_Nama";
 
-  return `Laporan_CC_${safeName}.pdf`;
+  let formattedDate = "Tanpa_Tanggal";
+  if (rawMeetingDate) {
+    const parts = rawMeetingDate.split("-");
+    if (parts.length === 3) {
+      formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+    } else {
+      formattedDate = rawMeetingDate.replace(/[\\/:*?"<>|]/g, "-");
+    }
+  }
+
+  return `Laporan Hasil Case Conference_${safeName}_${formattedDate}.pdf`;
 }
 
 async function exportPDF() {
