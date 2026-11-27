@@ -121,134 +121,16 @@ Semua isian, tanda tangan, dan foto dokumentasi tersimpan otomatis di browser in
 <div class="preview-heading">
 <div>
 <h2>Pratinjau Dokumen</h2>
-<p>Format A4 | Laporan dan Dokumentasi</p>
+<p id="pageSummary">Format A4 | Laporan dan Dokumentasi</p>
 </div>
 </div>
 
-<div class="preview-area">
-
-<div class="page">
-
-<div class="logo-area">
-  <img
-    id="kemensosLogo"
-    src="https://grizzlybrew.github.io/laporan-hasil-CC/logo-kemensos.png"
-    alt="Logo Kementerian Sosial Republik Indonesia"
-    loading="eager"
-    crossorigin="anonymous"
-    onerror="this.onerror=null; this.removeAttribute('crossorigin'); this.src='./logo%20kemensos.svg';"
-  >
+<!-- Wadah seluruh lembar kertas A4 hasil paginasi otomatis -->
+<div class="preview-area" id="previewArea">
+  <div id="reportPages"></div>
+  <div id="photoPages"></div>
 </div>
 
-<div class="document-title">
-LAPORAN HASIL CASE CONFERENCE
-</div>
-
-<div class="document-row">
-<div>1.</div>
-<div>Pembahasan Kasus PM atas nama</div>
-<div></div>
-<div></div>
-</div>
-
-<div class="identity">
-
-<div class="document-row">
-<div>a.</div>
-<div>Nama</div>
-<div>:</div>
-<div class="value" id="p-name"></div>
-</div>
-
-<div class="document-row">
-<div>b.</div>
-<div>Tempat, Tanggal Lahir</div>
-<div>:</div>
-<div class="value" id="p-birth"></div>
-</div>
-
-<div class="document-row">
-<div>c.</div>
-<div>Alamat</div>
-<div>:</div>
-<div class="value" id="p-address"></div>
-</div>
-
-<div class="document-row">
-<div>d.</div>
-<div>Kasus</div>
-<div>:</div>
-<div class="value" id="p-case"></div>
-</div>
-
-<div class="document-row">
-<div>e.</div>
-<div>Rujukan</div>
-<div>:</div>
-<div class="value" id="p-referral"></div>
-</div>
-
-<div class="document-row">
-<div>f.</div>
-<div>Tanggal Masuk</div>
-<div>:</div>
-<div class="value" id="p-entry"></div>
-</div>
-
-</div>
-
-<div class="document-row section-row">
-<div>2.</div>
-<div>Pembahasan Hasil Asesmen</div>
-<div>:</div>
-<div class="value" id="p-assessment"></div>
-</div>
-
-<div class="document-row section-row">
-<div>3.</div>
-<div>Rencana Intervensi</div>
-<div>:</div>
-<div class="value" id="p-intervention"></div>
-</div>
-
-<div class="document-row section-row">
-<div>4.</div>
-<div>Rekomendasi Hasil Kesepakatan</div>
-<div>:</div>
-<div class="value" id="p-recommendation"></div>
-</div>
-
-<div class="signature">
-
-<div class="signature-date">
-<span id="p-city">Jakarta</span>,
-<span id="p-meetingDate"></span>
-</div>
-
-<div>Petugas Pelaksana,</div>
-
-<div class="signature-space" id="signatureSpace"></div>
-
-<img id="p-signature" alt="Tanda Tangan Petugas" style="display:none">
-
-<div><b id="p-officer"></b></div>
-
-</div>
-
-</div>
-
-<div id="photoPages">
-<div class="page">
-<div class="page-two-title">DOKUMENTASI</div>
-<div class="photo-grid" id="photoPreview">
-<p style="color:#999;text-align:center">
-Dokumentasi akan muncul setelah foto diunggah.
-</p>
-</div>
-</div>
-</div>
-
-</div>
 </section>
 </main>
 
