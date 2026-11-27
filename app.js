@@ -388,7 +388,7 @@ function renderPhotos() {
 }
 
 /* ==================================
-   7. EKSPOR PDF A4 ANTI-BLANK & MARGIN RAPI
+   7. EKSPOR PDF A4 ANTI-BLANK & ANTI-TERPOTONG BARIS
 ================================== */
 
 function getPdfFilename() {
@@ -403,7 +403,6 @@ function getPdfFilename() {
   return `Laporan_CC_${safeName}.pdf`;
 }
 
-// Konversi gambar logo eksternal ke Base64 aman agar tidak memicu taint/blank pada canvas
 function logoToBase64(imgEl) {
   return new Promise(resolve => {
     if (!imgEl || !imgEl.getAttribute("src")) return resolve(null);
@@ -424,6 +423,41 @@ function logoToBase64(imgEl) {
     };
     img.onerror = () => resolve(null);
     img.src = imgEl.src;
+  });
+}
+
+// Memecah teks panjang menjadi blok-blok kalimat terlindungi (break-inside: avoid)
+// agar html2pdf memotong halaman tepat di sela antarbaris, bukan membelah huruf.
+function prepareSafeLineBreaks(container) {
+  const valueNodes = container.querySelectorAll(".document-row .value");
+
+  valueNodes.forEach(node => {
+    const rawText = node.textContent || "";
+    if (!rawText.trim()) return;
+
+    const lines = rawText.split(/\n/);
+    node.innerHTML = "";
+
+    lines.forEach(line => {
+      if (!line.trim()) {
+        const spacer = document.createElement("div");
+        spacer.style.height = "1.4em";
+        spacer.className = "pdf-line-block";
+        node.appendChild(spacer);
+        return;
+      }
+
+      const chunks = line.match(/[^.!?]+[.!?]+\s*|[^.!?]+$/g) || [line];
+      chunks.forEach(chunk => {
+        const spanBlock = document.createElement("div");
+        spanBlock.className = "pdf-line-block";
+        spanBlock.textContent = chunk.trimEnd();
+        spanBlock.style.marginBottom = "1px";
+        spanBlock.style.breakInside = "avoid";
+        spanBlock.style.pageBreakInside = "avoid";
+        node.appendChild(spanBlock);
+      });
+    });
   });
 }
 
@@ -451,10 +485,8 @@ async function exportPDF() {
     const sourceReport = dom.previewArea.querySelector(":scope > .page");
     if (!sourceReport) throw new Error("Isi laporan tidak ditemukan.");
 
-    // 1. Amankan logo menjadi Base64
     const safeLogo = await logoToBase64(document.getElementById("kemensosLogo"));
 
-    // 2. Sembunyikan sementara UI utama & tempatkan panggung cetak di aliran dokumen normal (static)
     headerEl.style.display = "none";
     mainEl.style.display = "none";
     window.scrollTo(0, 0);
@@ -463,17 +495,16 @@ async function exportPDF() {
     printStage.id = "pdf-print-stage";
     Object.assign(printStage.style, {
       position: "static",
-      width: `${CONTENT_WIDTH_MM}mm`, // 210mm (A4) dikurangi margin kiri 25mm & kanan 25mm
+      width: `${CONTENT_WIDTH_MM}mm`,
       margin: "0 auto",
       padding: "0",
       background: "#ffffff",
       color: "#111111",
       fontFamily: "Calibri, Arial, sans-serif",
       fontSize: "11pt",
-      lineHeight: "1.4"
+      lineHeight: "1.45"
     });
 
-    // 3. Kloning laporan utama tanpa padding (margin ditangani html2pdf di setiap halaman)
     const clonedReport = sourceReport.cloneNode(true);
     Object.assign(clonedReport.style, {
       display: "block",
@@ -496,9 +527,10 @@ async function exportPDF() {
       }
     }
 
+    prepareSafeLineBreaks(clonedReport);
+
     printStage.appendChild(clonedReport);
 
-    // 4. Kloning halaman dokumentasi jika ada foto (mulai di halaman baru)
     if (photoData.length > 0) {
       const photoPageNodes = dom.photoPages.querySelectorAll(".page");
       photoPageNodes.forEach(pageNode => {
@@ -521,7 +553,6 @@ async function exportPDF() {
 
     document.body.appendChild(printStage);
 
-    // 5. Tunggu semua gambar (logo, TTD, foto) selesai di-decode
     const images = Array.from(printStage.querySelectorAll("img"));
     await Promise.all(
       images.map(img => {
@@ -533,7 +564,6 @@ async function exportPDF() {
 
     await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
 
-    // 6. Render PDF dengan margin A4 resmi di setiap halaman [Atas, Kanan, Bawah, Kiri]
     const options = {
       margin: PDF_MARGIN,
       filename: getPdfFilename(),
@@ -554,7 +584,7 @@ async function exportPDF() {
       },
       pagebreak: {
         mode: ["css", "legacy"],
-        avoid: [".signature", ".photo-item", ".logo-area", ".document-title"]
+        avoid: [".pdf-line-block", ".signature", ".photo-item", ".logo-area", ".document-title"]
       }
     };
 
@@ -564,7 +594,6 @@ async function exportPDF() {
     console.error("Gagal mengekspor PDF:", error);
     alert("PDF gagal dibuat: " + (error && error.message ? error.message : "Kesalahan tidak diketahui"));
   } finally {
-    // 7. Hapus panggung cetak & kembalikan tampilan layar seperti semula
     if (printStage && printStage.parentNode) {
       printStage.parentNode.removeChild(printStage);
     }
